@@ -1,1 +1,12 @@
-{"scripts":{"lint":"eslint 'src/**/*.{ts,js}'","lint-fix":"eslint --fix 'src/**/*.{ts,js}'","start":"ts-node -T src/server.ts"},"dependencies":{"discord.js":"^14.14.1","eslint":"^8.57.0","node-fetch":"^2.7.0"}}
+{
+  "scripts": {
+    "lint": "eslint 'src/**/*.{ts,js}'",
+    "lint-fix": "eslint --fix 'src/**/*.{ts,js}'",
+    "start": "ts-node -T src/server.ts"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "eslint": "^8.57.0",
+    "node-fetch": "^2.7.0"
+  }
+}
