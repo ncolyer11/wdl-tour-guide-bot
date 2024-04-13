@@ -1,2 +1,9 @@
-# wdl-tour-guide-bot
-A bot that guides new members to world downloads, helps them with technical issues, provides pruning and member logging functionality, sends unique welcome messages, and directs naive paper users to informative video
+# WDL-Tour-Guide Bot
+A Discord bot that:
+- Guides new members to world download
+- Helps them with technical issue
+- Provides pruning and member logging functionality
+- Sends unique welcome messages
+- Directs naive paper users to informative video
+
+Note this is a new repo with no saved commit histroy as the prior repo revealed sensitive information
