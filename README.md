@@ -1,7 +1,7 @@
 # WDL-Tour-Guide Bot
 A Discord bot that:
-- Guides new members to world download
-- Helps them with technical issue
+- Guides new members to world downloads
+- Helps them with technical issues
 - Provides pruning and member logging functionality
 - Sends unique welcome messages
 - Directs naive paper users to informative video
