@@ -6,4 +6,4 @@ A Discord bot that:
 - Sends unique welcome messages
 - Directs naive paper users to informative video
 
-Note this is a new repo with no saved commit histroy as the prior repo revealed sensitive information
+Note this is a new repo with no saved commit histroy as the prior repo revealed sensitive information.
