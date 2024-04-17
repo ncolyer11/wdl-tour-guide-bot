@@ -237,21 +237,24 @@ function updateHourlyLimit() {
 }
 
 async function checkKick(message) {
-  const { content, author, guild, mentions, channel } = message;
+  const { content, author, guild, channel } = message;
   let users = dataStore.users;
   const links = linkify.find(content);
   
   // Update user's message timestamps
   const currentTime = Date.now();
   updateUserMessages(users, author.id, channel.id, currentTime);
+  const hasPinged = message.content.includes('@everyone') || message.content.includes('@here');
   
   const user = users.find(user => user.userId === author.id);
-  
+  const member = guild.members.cache.get(author.id);
+  const userRoles = member.roles.cache.map(role => role.name);
   // Check for kick conditions
   if (links.length > 0 
-      && (mentions.everyone || mentions.here) 
+      && hasPinged
       && user && user.messageCount >= CHANNEL_MESSAGE_LIMIT
-      && !author.roles.cache.some(role => role.name !== '@everyone')) {
+      && !userRoles.some(role => role.name !== '@everyone')
+    ){
     await kickUser(guild, author, channel);
     return;
   }
