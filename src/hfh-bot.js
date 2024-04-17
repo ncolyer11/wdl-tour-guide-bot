@@ -14,7 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const fetch = require('node-fetch');
 const linkify = require('linkifyjs');
-
+const util = require('util');
 
 const HOURLY_MSG_LIMIT = 10;
 const HOURLY_INDV_REPLY_LIMIT = 3;
@@ -161,6 +161,8 @@ client.on('messageCreate', async (message) => {
       messageCount++;
     }
   }
+
+  console.log(util.inspect(dataStore.users, { depth: null, colors: true }));
 });
 
 
