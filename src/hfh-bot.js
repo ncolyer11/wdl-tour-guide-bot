@@ -1,5 +1,5 @@
 const Discord = require('discord.js');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder } = require('discord.js'); // Assuming EmbedBuilder is custom, otherwise remove this line
 const client = new Discord.Client({
   intents: [
     Discord.GatewayIntentBits.Guilds,
@@ -12,11 +12,14 @@ const client = new Discord.Client({
 const { safeRoles, triggerPhrases, otherPhrases, excPhrases, welcomeMessages, channelIds } = require('./strings');
 const path = require('path');
 const fs = require('fs');
-const fetch = require('node-fetch')
+const fetch = require('node-fetch');
+const linkify = require('linkifyjs');
 
 
 const HOURLY_MSG_LIMIT = 10;
 const HOURLY_INDV_REPLY_LIMIT = 3;
+const CHANNEL_COOLDOWN = 20000;
+const CHANNEL_MESSAGE_LIMIT = 5;
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
@@ -30,8 +33,21 @@ let currentHour = new Date().getHours();
 //   replyCount;
 // }
 const dataStore = {
-  userReplyData: []
+  userReplyData: [],
+  users: []
 };
+
+/*
+{
+  userId: 'userID1'
+  channels: {
+    'channelID1': [timestamp1, timestamp2, timestamp3, timestamp4, timestamp5],
+    'channelID2': [timestamp6, timestamp7, timestamp8]
+  },
+  messageCount: 8  // Total count of messages across all channels
+}
+
+*/
 
 // Set interval to update hourly limit every hour
 setInterval(updateHourlyLimit, 1000 * 60 * 60);
@@ -95,8 +111,6 @@ client.on('messageDelete', (message) => {
 
   const testingChannel = message.guild.channels.cache.get(testingChannelId);
   if (testingChannel) {
-    // Check if the message contains any mention
-    const containsMention = message.content.includes('@everyone');
     // If any mention found, replace them with text to avoid ping
     const sanitizedContent = message.content.replace(/@everyone/g, '`@everyone`').replace(/@here/g, '`@here`');
     testingChannel.send(`**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`);
@@ -117,6 +131,8 @@ client.on('messageCreate', async (message) => {
     message.delete().catch(error => console.error('Error deleting message:', error));
     console.log("Kept #chunk-manipulation clean")
   }
+
+  checkKick(message);
 
   if (canSendMessage(message)) {
     if (triggerPhrases.some(phrase => message.content.toLowerCase().includes(phrase))) {
@@ -146,6 +162,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 });
+
 
 // Periodically check for new Stemlight releases
 client.once('ready', () => {
@@ -214,6 +231,69 @@ function updateHourlyLimit() {
     messageCount = 0;
     dataStore.userReplyData = [];
     reached = false;
+  }
+}
+
+async function checkKick(message) {
+  const { content, author, guild, mentions, channel } = message;
+  let users = dataStore.users;
+  const links = linkify.find(content);
+  
+  // Update user's message timestamps
+  const currentTime = Date.now();
+  updateUserMessages(users, author.id, channel.id, currentTime);
+  
+  const user = users.find(user => user.userId === author.id);
+  
+  // Check for kick conditions
+  if (links.length > 0 
+      && (mentions.everyone || mentions.here) 
+      && user && user.messageCount >= CHANNEL_MESSAGE_LIMIT
+      && !author.roles.cache.some(role => role.name !== '@everyone')) {
+    await kickUser(guild, author, channel);
+    return;
+  }
+}
+
+// Function to update user's message timestamps
+function updateUserMessages(users, userId, channelId, timestamp) {
+  let user = users.find(user => user.userId === userId);
+  
+  if (!user) {
+    user = {
+      userId,
+      channels: {},
+      messageCount: 0
+    };
+    users.push(user);
+  }
+  
+  if (!user.channels[channelId]) {
+    user.channels[channelId] = [];
+  }
+  
+  if (user.channels[channelId].length === 0) user.messageCount++;
+  user.channels[channelId].push(timestamp);
+  
+  // Remove timestamps older than CHANNEL_COOLDOWN
+  user.channels[channelId] = user.channels[channelId].filter(
+    time => timestamp - time < CHANNEL_COOLDOWN
+  );
+  
+  return users;
+}
+
+// kicks user and logs details to bot log channel
+async function kickUser(guild, user, channel, messageContent) {
+  const member = await guild.members.fetch(user);
+  if (member) {
+      // dont actually kick user rn
+      await member.kick({ reason: 'Bot detected violation of rules' });
+
+      const testingChannel = guild.channels.cache.get(testingChannelId);
+      if (testingChannel) {
+          testingChannel.send(`**Deleted Message:** \n- kickned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${messageContent}"`);
+      }
   }
 }
 
