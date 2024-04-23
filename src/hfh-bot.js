@@ -162,7 +162,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  console.log(util.inspect(dataStore.users, { depth: null, colors: true }));
+  // console.log(util.inspect(dataStore.users, { depth: null, colors: true }));
 });
 
 
@@ -292,12 +292,11 @@ function updateUserMessages(users, userId, channelId, timestamp) {
 async function kickUser(guild, user, channel, messageContent) {
   const member = await guild.members.fetch(user);
   if (member) {
-      // dont actually kick user rn
-      await member.kick({ reason: 'Bot detected violation of rules' });
+      await member.ban({ reason: 'Bot detected violation of rules' });
 
       const testingChannel = guild.channels.cache.get(testingChannelId);
       if (testingChannel) {
-          testingChannel.send(`**Deleted Message:** \n- kickned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${messageContent}"`);
+          testingChannel.send(`**Deleted Message:** \n- Banned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${messageContent}"`);
       }
   }
 }
@@ -350,18 +349,22 @@ async function pruneMessages(message) {
 
   // Wait for confirmation from the user
   const filter = m => m.author.id === message.author.id && m.content.toLowerCase() === 'confirm';
-  message.channel.awaitMessages({ filter, max: 1, time: 5 * 1000, errors: ['time'] })
-    .then(async collected => {
-      // Prune the messages
-      const messages = await message.channel.messages.fetch({ limit: numMessages + 2 });
-      message.channel.bulkDelete(messages.size);
-      message.reply(`Successfully pruned the last ${numMessages} messages.`);
-      confirmationMessage.delete();
-    })
-    .catch(() => {
-      message.reply('Confirmation timed out. Operation canceled.');
-      confirmationMessage.delete();
-    });
+  try {
+    message.channel.awaitMessages({ filter, max: 1, time: 5 * 1000, errors: ['time'] })
+      .then(async collected => {
+        // Prune the messages
+        const messages = await message.channel.messages.fetch({ limit: numMessages + 2 });
+        message.channel.bulkDelete(messages.size);
+        message.reply(`Successfully pruned the last ${numMessages} messages.`);
+        confirmationMessage.delete();
+      })
+      .catch(() => {
+        message.reply('Confirmation timed out. Operation canceled.');
+        confirmationMessage.delete();
+      });
+  } catch (e) {
+    console.log(`Error Bulk Deleting Messages: ${e}`);
+  }
 }
 
 // Check for new releases of Stemlight and post them to #maths-and-code
