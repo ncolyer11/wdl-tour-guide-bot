@@ -134,7 +134,7 @@ client.on('messageCreate', async (message) => {
 
   checkKick(message);
 
-  if (canSendMessage(message)) {
+  if (canSendMessage(message, true)) {
     if (triggerPhrases.some(phrase => message.content.toLowerCase().includes(phrase))) {
       message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
       console.log(`Sent message ${messageCount} in response to "world download"`);
@@ -150,7 +150,9 @@ client.on('messageCreate', async (message) => {
         incrementUserReplyCount(message.author.username);
         messageCount++;
       }
-
+    }
+    
+  if (canSendMessage(message, false)) {
     if (message.content.toLowerCase().includes('paper')
       /*&& message.content.toLowerCase().includes('server')
         && (message.content.toLowerCase().includes('i')*/) {
@@ -186,7 +188,7 @@ function weightedRandomIndex(weights) {
   }
 }
 
-function canSendMessage(message) {
+function canSendMessage(message, channelRestrict) {
   // Check if the message count has reached the limit
   if (messageCount >= HOURLY_MSG_LIMIT) {
     if (!reached) {
@@ -210,7 +212,7 @@ function canSendMessage(message) {
   }
 
   // Check if the message was sent in one of the specified channels
-  if (!channelIds.includes(message.channel.id)) {
+  if (channelRestrict && !channelIds.includes(message.channel.id)) {
     // console.log('Invalid channel');
     return false;
   }
