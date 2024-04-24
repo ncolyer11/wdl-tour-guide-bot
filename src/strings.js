@@ -5,7 +5,6 @@ exports.safeRoles = [
   'fungus enthusiast',
   'trusted user',
   'nft',
-  'slightly different shade of cyan',
   'hamper',
   'carter',
   'demoman'
