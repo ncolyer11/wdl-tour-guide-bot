@@ -19,7 +19,7 @@ const util = require('util');
 const HOURLY_MSG_LIMIT = 10;
 const HOURLY_INDV_REPLY_LIMIT = 3;
 const CHANNEL_COOLDOWN = 20000;
-const CHANNEL_MESSAGE_LIMIT = 5;
+const SPAM_MESSAGE_LIMIT = 4;
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
@@ -28,26 +28,28 @@ const mathsAndCodeChannelId = '1036212683374088283'
 let messageCount = 0;
 let reached = false;
 let currentHour = new Date().getHours();
-// {@typedef}userRepliesSent {
-//   username;
-//   replyCount;
-// }
+/*
+dataStore: {
+  userReplyData: {
+    username: 'Colin Munro',
+    replyCount: 13
+  }
+  users: {
+    name: 'Colin Munro',
+    userId: '1720138701905185690',
+    channels: {
+      '1019870085617291305': [1714008352988, 1714008281112],
+      '1036212683374088283': [1714008225453]
+    },
+    messageCount: 3  // Total count of all scam messages across all channels within the last 20 seconds
+  }
+}
+*/
 const dataStore = {
   userReplyData: [],
   users: []
 };
 
-/*
-{
-  userId: 'userID1'
-  channels: {
-    'channelID1': [timestamp1, timestamp2, timestamp3, timestamp4, timestamp5],
-    'channelID2': [timestamp6, timestamp7, timestamp8]
-  },
-  messageCount: 8  // Total count of messages across all channels
-}
-
-*/
 
 // Set interval to update hourly limit every hour
 setInterval(updateHourlyLimit, 1000 * 60 * 60);
@@ -164,7 +166,7 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // console.log(util.inspect(dataStore.users, { depth: null, colors: true }));
+  console.log(util.inspect(dataStore.users, { depth: null, colors: true }));
 });
 
 
@@ -239,53 +241,51 @@ function updateHourlyLimit() {
 }
 
 async function checkKick(message) {
-  const { content, author, guild, channel } = message;
+  const { author, guild, channel } = message;
   let users = dataStore.users;
-  const links = linkify.find(content);
-  
-  // Update user's message timestamps
-  const currentTime = Date.now();
-  updateUserMessages(users, author.id, channel.id, currentTime);
-  const hasPinged = message.content.includes('@everyone') || message.content.includes('@here');
+  updateUserMessages(users, author.id, channel.id);
   
   const user = users.find(user => user.userId === author.id);
-  const member = guild.members.cache.get(author.id);
-  const userRoles = member.roles.cache.map(role => role.name);
   // Check for kick conditions
-  if (links.length > 0 
-      && hasPinged
-      && user && user.messageCount >= CHANNEL_MESSAGE_LIMIT
-      && !userRoles.some(role => role.name !== '@everyone')
+  if (user && user.messageCount >= SPAM_MESSAGE_LIMIT
+      // && !userRoles.some(role => role.name !== '@everyone')
     ){
-    await kickUser(guild, author, channel);
+    await kickUser(guild, author, channel, message.content);
     return;
   }
 }
 
 // Function to update user's message timestamps
-function updateUserMessages(users, userId, channelId, timestamp) {
+function updateUserMessages(users, userId, channelId) {
   let user = users.find(user => user.userId === userId);
+  const links = linkify.find(content);
   
+  // Update user's message timestamps
+  const hasPinged = message.content.includes('@everyone') || message.content.includes('@here');
   if (!user) {
     user = {
+      name: user.username,
       userId,
       channels: {},
       messageCount: 0
     };
     users.push(user);
   }
+
   
-  if (!user.channels[channelId]) {
-    user.channels[channelId] = [];
+  if (links.length > 0 && hasPinged) {
+    // If first time spamming in this channel
+    if (!user.channels[channelId]) user.channels[channelId] = [];
+    user.channels[channelId].push(Date.now());
+    user.messageCount++;
   }
   
-  if (user.channels[channelId].length === 0) user.messageCount++;
-  user.channels[channelId].push(timestamp);
-  
   // Remove timestamps older than CHANNEL_COOLDOWN
-  user.channels[channelId] = user.channels[channelId].filter(
+  const freshMessages = user.channels[channelId].filter(
     time => timestamp - time < CHANNEL_COOLDOWN
   );
+  user.messageCount -= user.channels[channelId].length - freshMessages.length;
+  user.channels[channelId] = freshMessages;
   
   return users;
 }
@@ -294,13 +294,23 @@ function updateUserMessages(users, userId, channelId, timestamp) {
 async function kickUser(guild, user, channel, messageContent) {
   const member = await guild.members.fetch(user);
   if (member) {
-      await member.ban({ reason: 'Bot detected violation of rules' });
-
+      await member.ban({ days: 7, reason: 'Bot detected violation of rules' });
+      sendBanMessage(user, channel);
       const testingChannel = guild.channels.cache.get(testingChannelId);
       if (testingChannel) {
           testingChannel.send(`**Deleted Message:** \n- Banned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${messageContent}"`);
       }
   }
+}
+
+// Send a message when the bot auto bans a scammer
+function sendBanMessage(user, channel) {
+  const embedMessage = new EmbedBuilder()
+    .setColor('#111111')
+    .setTitle(`🔨 Banned User: ${user.username} 🚫`)
+    .setDescription('Looks like they won\'t be spamming any longer');
+
+  channel.send({ embeds: [embedMessage] })
 }
 
 // Send a message when the bot is started
