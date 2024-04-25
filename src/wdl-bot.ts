@@ -1,5 +1,5 @@
 const Discord = require('discord.js');
-const { EmbedBuilder } = require('discord.js'); // Assuming EmbedBuilder is custom, otherwise remove this line
+const { EmbedBuilder } = require('discord.js');
 const client = new Discord.Client({
   intents: [
     Discord.GatewayIntentBits.Guilds,
@@ -12,6 +12,7 @@ const client = new Discord.Client({
 const { safeRoles, triggerPhrases, otherPhrases, excPhrases, welcomeMessages, channelIds } = require('./strings');
 const path = require('path');
 const fs = require('fs');
+// @ts-ignore
 const fetch = require('node-fetch');
 const linkify = require('linkifyjs');
 const util = require('util');
@@ -28,32 +29,33 @@ const mathsAndCodeChannelId = '1036212683374088283'
 let messageCount = 0;
 let reached = false;
 let currentHour = new Date().getHours();
-/*
-dataStore: {
-  userReplyData: {
-    username: 'Colin Munro',
-    replyCount: 13
-  }
-  users: {
-    name: 'Colin Munro',
-    userId: '1720138701905185690',
-    channels: {
-      '1019870085617291305': [1714008352988, 1714008281112],
-      '1036212683374088283': [1714008225453]
-    },
-    messageCount: 3  // Total count of all scam messages across all channels within the last 20 seconds
-  }
+
+interface UserReplyData {
+  username: string;
+  replyCount: number;
 }
-*/
-const dataStore = {
+
+interface User {
+  name: string;
+  userId: string;
+  channels: {
+    [channelId: string]: number[];
+  };
+  messageCount: number;
+}
+
+interface DataStore {
+  userReplyData: UserReplyData[];
+  users: User[];
+}
+
+const dataStore: DataStore = {
   userReplyData: [],
   users: []
 };
 
-
 // Set interval to update hourly limit every hour
 setInterval(updateHourlyLimit, 1000 * 60 * 60);
-
 
 /////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// End Points /////////////////////////////////
@@ -70,14 +72,14 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-let lastMessageIndex;
+let lastMessageIndex: number;
 client.on('guildMemberAdd', (member) => {
   // Create a map to store the last join message for each member
   const joinMessages = new Map();
   // Define an array of integers representing the relative rarities of each welcome message
   const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6, 7, 3, 4, 6, 5];
 
-  let messageIndex = weightedRandomIndex(messageRarities);
+  let messageIndex: number = weightedRandomIndex(messageRarities);
   if (typeof lastMessageIndex === 'undefined') {
     lastMessageIndex = messageIndex;
   }
@@ -87,8 +89,8 @@ client.on('guildMemberAdd', (member) => {
     messageIndex = weightedRandomIndex(messageRarities);
   }
 
-  const message = welcomeMessages[messageIndex];
-  const welcomeMessage = `${message}`.replace('{member}', `<@${member.id}>`).replace('{archive}', `<#${archiveChannel}>`).replace('{Froge}', `<:Froge:930083494938411018>`);
+  const message: string = welcomeMessages[messageIndex];
+  const welcomeMessage: string = `${message}`.replace('{member}', `<@${member.id}>`).replace('{archive}', `<#${archiveChannel}>`).replace('{Froge}', `<:Froge:930083494938411018>`);
   const sentMessage = member.guild.systemChannel.send(welcomeMessage);
 
   joinMessages.set(member.id, sentMessage);
@@ -177,7 +179,7 @@ client.once('ready', () => {
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////// Functions /////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-function weightedRandomIndex(weights) {
+function weightedRandomIndex(weights): number {
   let totalWeight = weights.reduce((acc, w) => acc + w);
   let random = Math.random() * totalWeight;
   for (let i = 0; i < weights.length; i++) {
@@ -199,7 +201,7 @@ function canSendMessage(message, channelRestrict) {
     return false;
   }
 
-  const user = dataStore.userReplyData.find(
+  const user: UserReplyData | undefined = dataStore.userReplyData.find(
     user => user.username === message.author.username);
   if (user && user.replyCount >= HOURLY_INDV_REPLY_LIMIT) {
     if (user.replyCount == HOURLY_INDV_REPLY_LIMIT) { 
@@ -280,13 +282,13 @@ function updateUserMessages(users, userId, channelId, message) {
     // Debug dataStore
     console.log(util.inspect(dataStore, { depth: null, colors: true }));
   }
-
+  
   // Return early if new channel hasn't been added yet due to no valid appended scam messages
   if (!user.channels[channelId]) return users;
 
   // Remove timestamps older than CHANNEL_COOLDOWN
   const freshMessages = user.channels[channelId].filter(
-    time => timestamp - time < CHANNEL_COOLDOWN
+    time => Date.now() - time < CHANNEL_COOLDOWN
   );
   user.messageCount -= user.channels[channelId].length - freshMessages.length;
   user.channels[channelId] = freshMessages;
@@ -294,16 +296,27 @@ function updateUserMessages(users, userId, channelId, message) {
   return users;
 }
 
-// kicks user and logs details to bot log channel
+// Bans user and logs details to bot log channel
 async function kickUser(guild, user, channel, messageContent) {
   const member = await guild.members.fetch(user);
   if (member) {
-      await member.ban({ days: 7, reason: 'Bot detected violation of rules' });
-      sendBanMessage(user, channel);
-      const testingChannel = guild.channels.cache.get(testingChannelId);
-      if (testingChannel) {
-          testingChannel.send(`**Deleted Message:** \n- Banned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${messageContent}"`);
-      }
+    // Ban and delete the scammer's messages
+    await member.ban({
+      deleteMessageSeconds: 60 * 60 * 24 * 7,
+      reason: 'Bot detected violation of rules'
+    });
+    sendBanMessage(user, channel);
+    console.log(`Banned member: ${user.username}`);
+
+    const testingChannel = guild.channels.cache.get(testingChannelId);
+    if (testingChannel) {
+      const sanitizedContent = messageContent
+        .replace(/@everyone/g, '`@everyone`')
+        .replace(/@here/g, '`@here`');
+      testingChannel.send(
+        `**Deleted Message:** \n- Banned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${sanitizedContent}"`
+      );
+    }
   }
 }
 
@@ -401,6 +414,7 @@ async function checkForNewRelease() {
       }
     });
     const data = await response.json();
+   
 
     // Check if the latest release is different from the last known release
     if (data.tag_name !== getLastReleaseTag()) {
@@ -421,8 +435,9 @@ async function checkForNewRelease() {
           const fileEmbed = new EmbedBuilder()
             .setURL(data.html_url)
             .setImage(url);
+            // @ts-ignore
           embeds.push(fileEmbed);
-
+          if (!embed.data.description) return;
           // Replace the URL with attachment reference in the description
           embed.setDescription(embed.data.description.replace(
             new RegExp(`\\!\\[.*?\\]\\(${url}\\)`, 'g'), '  - *see attached image*'));
@@ -466,10 +481,10 @@ function updateLastReleaseTag(tag) {
 // Extracts image URLs from release notes
 function extractImageUrls(releaseNotes) {
   const regex = /\!\[.*?\]\((.*?)\)/g; // Regex to match the markdown image syntax and extract the URL
-  const matches = [];
-  let match;
+  const matches: string[] = [];
+  let match: RegExpExecArray | null;
   while ((match = regex.exec(releaseNotes)) !== null) {
-      matches.push(match[1]); // Extract the URL from the matched markdown syntax and add it to the array
+      matches.push(match[1] as string); // Extract the URL from the matched markdown syntax and add it to the array
   }
 
   return matches;

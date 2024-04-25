@@ -2,3 +2,4 @@ token.txt
 node_modules/
 src/PAT.txt
 .vscode/
+src/hfh-bot.js
