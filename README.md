@@ -5,5 +5,6 @@ A Discord bot that:
 - Provides pruning and member logging functionality
 - Sends unique welcome messages
 - Directs naive paper users to informative video
+- Autobans scammers with next to 0 false positives
 
 Note this is a new repo with no saved commit histroy as the prior repo revealed sensitive information.
