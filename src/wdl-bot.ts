@@ -21,6 +21,7 @@ const HOURLY_MSG_LIMIT = 10;
 const HOURLY_INDV_REPLY_LIMIT = 3;
 const CHANNEL_COOLDOWN = 20000;
 const SPAM_MESSAGE_LIMIT = 4;
+const MAXRETRIES = 5;
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
@@ -398,58 +399,61 @@ async function pruneMessages(message) {
 
 // Check for new releases of Stemlight and post them to #maths-and-code
 async function checkForNewRelease() {
-  try {
-    // API endpoint for latest release
-    const repo = 'ncolyer11/Stemlight';
-    const url = `https://api.github.com/repos/${repo}/releases/latest`;
-    // Authenticating for a higher rate limit 
-    const personalAccessTokenPath = path.join(__dirname, 'PAT.txt');
-    const personalAccessToken = fs.readFileSync(personalAccessTokenPath, 'utf8').trim();
+  const retryDelay = 5000; // 5 seconds
 
-    // Fetch latest release information from GitHub
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `token ${personalAccessToken}`,
-        'ncolyer': 'World Download Bot'
-      }
-    });
-    const data = await response.json();
-   
+  for (let attempt = 1; attempt <= MAXRETRIES; attempt++) {
+    try {
+      const repo = 'ncolyer11/Stemlight';
+      const url = `https://api.github.com/repos/${repo}/releases/latest`;
+      const personalAccessTokenPath = path.join(__dirname, 'PAT.txt');
+      const personalAccessToken = fs.readFileSync(personalAccessTokenPath, 'utf8').trim();
 
-    // Check if the latest release is different from the last known release
-    if (data.tag_name !== getLastReleaseTag()) {
-      // Send a message to the desired Discord channel with information about the new release
-      const channel = client.channels.cache.get(mathsAndCodeChannelId);
-      if (channel) {
-        const embed = new EmbedBuilder()
-          .setColor('#00a7a3') // Warped wart block coloured ish
-          .setTitle(`New Stemlight Release: ${data.tag_name}`)
-          .setDescription(data.body)
-          .setURL(data.html_url);
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `token ${personalAccessToken}`,
+          'User-Agent': 'World Download Bot'
+        }
+      });
 
-        // Parse release notes for image URLs and add them to the embeds
-        const imageUrls = extractImageUrls(data.body);
-        let embeds = [];
-        imageUrls.forEach((url) => {
-          // Create new embed for each image with only the image property
-          const fileEmbed = new EmbedBuilder()
-            .setURL(data.html_url)
-            .setImage(url);
-            // @ts-ignore
-          embeds.push(fileEmbed);
-          if (!embed.data.description) return;
-          // Replace the URL with attachment reference in the description
-          embed.setDescription(embed.data.description.replace(
-            new RegExp(`\\!\\[.*?\\]\\(${url}\\)`, 'g'), '  - *see attached image*'));
-        });
-
-        channel.send({ embeds: [embed, ...embeds] });
+      if (!response.ok) {
+        throw new Error(`GitHub API responded with status ${response.status}`);
       }
 
-      updateLastReleaseTag(data.tag_name);
+      const data = await response.json();
+
+      if (data.tag_name !== getLastReleaseTag()) {
+        const channel = client.channels.cache.get(mathsAndCodeChannelId);
+        if (channel) {
+          const embed = new EmbedBuilder()
+            .setColor('#00a7a3')
+            .setTitle(`New Stemlight Release: ${data.tag_name}`)
+            .setDescription(data.body)
+            .setURL(data.html_url);
+
+          const imageUrls = extractImageUrls(data.body);
+          let embeds = [embed];
+          imageUrls.forEach(url => {
+            const fileEmbed = new EmbedBuilder().setImage(url);
+            embeds.push(fileEmbed);
+            embed.setDescription(embed.data.description.replace(new RegExp(`\\!\\[.*?\\]\\(${url}\\)`, 'g'), '  - *see attached image*'));
+          });
+
+          channel.send({ embeds });
+        }
+        updateLastReleaseTag(data.tag_name);
+      }
+
+      return; // Success, exit the function
+    } catch (error) {
+      const err = error as Error;
+      console.error(`Attempt ${attempt} failed: ${err.message}`);
+      if (attempt < MAXRETRIES) {
+        console.log(`Retrying in ${retryDelay / 1000} seconds...`);
+        await new Promise(res => setTimeout(res, retryDelay));
+      } else {
+        console.error('Max retries reached. Giving up.');
+      }
     }
-  } catch (error) {
-    console.error('Error checking for new release: ', error);
   }
 }
 
