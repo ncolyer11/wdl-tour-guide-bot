@@ -74,6 +74,8 @@ process.on('SIGINT', async () => {
 });
 
 let lastMessageIndex: number;
+let lastPaperMessageTimestamp = 0;
+
 client.on('guildMemberAdd', (member) => {
   // Create a map to store the last join message for each member
   const joinMessages = new Map();
@@ -158,14 +160,19 @@ client.on('messageCreate', async (message) => {
     }
     
   if (canSendMessage(message, false)) {
-    if (message.content.toLowerCase().includes('paper')
-      /*&& message.content.toLowerCase().includes('server')
-        && (message.content.toLowerCase().includes('i')*/) {
-
-      message.channel.send('[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=1128s>)');
-      console.log('Sent message in response to paper devs being tarts');
-      incrementUserReplyCount(message.author.username);
-      messageCount++;
+    if (message.content.toLowerCase().includes('paper')) {
+  
+      const now = Date.now();
+      if (now - lastPaperMessageTimestamp >= 60 * 1000) { // 1 minute cooldown
+        // Randomly decide the timestamp
+        const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
+  
+        message.channel.send(`[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`);
+        console.log('Sent message in response to paper devs being tarts');
+        incrementUserReplyCount(message.author.username);
+        messageCount++;
+        lastPaperMessageTimestamp = now; // update the last message timestamp
+      }
     }
   }
 });
