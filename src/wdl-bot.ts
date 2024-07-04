@@ -139,7 +139,7 @@ client.on('messageCreate', async (message) => {
     console.log("Kept #chunk-manipulation clean")
   }
 
-  checkKick(message);
+  checkBan(message);
 
   if (canSendMessage(message, true)) {
     if (triggerPhrases.some(phrase => message.content.toLowerCase().includes(phrase))) {
@@ -249,17 +249,18 @@ function updateHourlyLimit() {
   }
 }
 
-async function checkKick(message) {
+////////////////////////////////////////
+////////// BAN USER FUNCTIONS //////////
+////////////////////////////////////////
+async function checkBan(message) {
   const { author, guild, channel } = message;
   let users = dataStore.users;
   updateUserMessages(users, author.id, channel.id, message);
   
   const user = users.find(user => user.userId === author.id);
-  // Check for kick conditions
-  if (user && user.messageCount >= SPAM_MESSAGE_LIMIT
-      // && !userRoles.some(role => role.name !== '@everyone')
-    ){
-    await kickUser(guild, author, channel, message.content);
+  // Check for ban conditions
+  if (user && user.messageCount >= SPAM_MESSAGE_LIMIT){
+    await banUser(guild, author, channel, message.content);
     return;
   }
 }
@@ -271,7 +272,12 @@ function updateUserMessages(users, userId, channelId, message) {
   const { author } = message;
   
   // Update user's message timestamps
-  const hasPinged = message.content.includes('@everyone') || message.content.includes('@here');
+  const keywords = [
+    '@everyone', '@here', 'steam', 'discord nitro', 'free nitro', 'free gift',
+    'free giveaway', 'free money', 'hack', 'bitcoin', 'crypto'
+  ];
+  const isSuspicious = keywords.some(keyword => message.content.includes(keyword));
+  
   if (!user) {
     user = {
       name: author.username,
@@ -282,7 +288,7 @@ function updateUserMessages(users, userId, channelId, message) {
     users.push(user);
   }
   
-  if (links.length > 0 && hasPinged) {
+  if (links.length > 0 && isSuspicious) {
     // If first time spamming in this channel
     if (!user.channels[channelId]) user.channels[channelId] = [];
     user.channels[channelId].push(Date.now());
@@ -305,7 +311,7 @@ function updateUserMessages(users, userId, channelId, message) {
 }
 
 // Bans user and logs details to bot log channel
-async function kickUser(guild, user, channel, messageContent) {
+async function banUser(guild, user, channel, messageContent) {
   const member = await guild.members.fetch(user);
   if (member) {
     // Ban and delete the scammer's messages
