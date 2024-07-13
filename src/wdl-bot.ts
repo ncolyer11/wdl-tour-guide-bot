@@ -151,7 +151,7 @@ client.on('messageCreate', async (message) => {
     && !excPhrases.some(
       phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
         message.channel.send(
-          `Hey ${message.author}, this server has many different tree farm designs by many different people.\nPlease include the name of the farm you need help with.`
+          `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
         );
         console.log(`Sent message ${messageCount} in response to "tree farm"`);
         incrementUserReplyCount(message.author.username);
@@ -229,7 +229,8 @@ function canSendMessage(message, channelRestrict) {
   }
 
   // Check if the member has any of the restricted roles
-  if (message.member.roles.cache.some(role => safeRoles.includes(role.name))) {
+  if (message.member && 
+      message.member.roles.cache.some(role => safeRoles.includes(role.name))) {
     // console.log('Member has restricted role');
     return false;
   }
@@ -273,7 +274,7 @@ function updateUserMessages(users, userId, channelId, message) {
   
   // Update user's message timestamps
   const keywords = [
-    '@everyone', '@here', 'steam', 'discord nitro', 'free nitro', 'free gift',
+    '@everyone', '@here', 'steam', 'discord', 'discord nitro', 'free nitro', 'free gift',
     'free giveaway', 'free money', 'hack', 'bitcoin', 'crypto'
   ];
   const isSuspicious = keywords.some(keyword => message.content.includes(keyword));

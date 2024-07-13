@@ -13,6 +13,7 @@ exports.safeRoles = [
 // trigger phrases
 exports.triggerPhrases = [
   'can i find',
+  'i can find',
   'where is the farm',
   'where is the download',
   'where is the schematic',
@@ -59,6 +60,8 @@ exports.triggerPhrases = [
 // what farm design phrases
 exports.otherPhrases = [
   'the tree farm',
+  'the wood farm',
+  'the machine',
   'the nether tree farm',
   'problem tree farm'
 ];
@@ -75,8 +78,10 @@ exports.excPhrases = [
   '"',
   'farms',
   'you',
-  'on',
-  'java'
+  '13000',
+  '13,000'
+  // 'on',
+  // 'java'
 ];
 
 // Define an array of possible welcome messages with different rarities
