@@ -26,7 +26,6 @@ const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
 
-
 let messageCount = 0;
 let reached = false;
 let currentHour = new Date().getHours();
@@ -76,7 +75,7 @@ process.on('SIGINT', async () => {
 let lastMessageIndex: number;
 let lastPaperMessageTimestamp = 0;
 
-client.on('guildMemberAdd', (member) => {
+client.on('guildMemberAdd', async (member) => {
   // Create a map to store the last join message for each member
   const joinMessages = new Map();
   // Define an array of integers representing the relative rarities of each welcome message
@@ -99,6 +98,8 @@ client.on('guildMemberAdd', (member) => {
   joinMessages.set(member.id, sentMessage);
   lastMessageIndex = messageIndex;
   console.log(`Sent welcome message to ${member.user.tag}`);
+
+  await dmUser(member);
 });
 
 client.on('guildMemberRemove', (member) => {
@@ -197,6 +198,22 @@ function weightedRandomIndex(weights): number {
     }
   }
   return 0;
+}
+
+async function dmUser(member): Promise<void> {
+  const prefix = `https://discord.com/channels/930027805398429736/`;
+  const dmMessage = `Hi, thanks for joining <:warped_fungus:1264941277779333242> Huge Fungi Huggers <:crimson_fungus:1264941397056819321>!
+  
+Here are some shortcuts to help you on your nether tree farming journey:
+ <:warped_stem:1264941326621999215>  [**12 Type Tree Farm Download**](${prefix}1221071923803586560)
+ <:crimson_stem:1264941385673605150>  [**Simple & Rapid Nether Tree Farm Download**](${prefix}1096118419201462303)
+ <:shroomlight:1264941341129834528>  [**All Farm World Downloads & Schematics**](${prefix}1019870085617291305)`;
+  try {
+    await member.send(dmMessage);
+    console.log(`Sent DM to ${member.user.tag}`);
+  } catch (error) {
+    console.error(`Error sending DM to ${member.user.tag}:`, error);
+  }
 }
 
 function canSendMessage(message, channelRestrict) {
