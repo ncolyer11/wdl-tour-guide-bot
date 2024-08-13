@@ -79,8 +79,6 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-
-
 client.on('guildMemberAdd', async (member) => {
   // Create a map to store the last join message for each member
   const joinMessages = new Map();
@@ -194,7 +192,6 @@ client.on('messageCreate', async (message) => {
     }
   }
 });
-
 
 // Periodically check for new Stemlight releases
 client.once('ready', () => {
@@ -323,7 +320,19 @@ function updateUserMessages(users, userId, channelId, message) {
     };
     users.push(user);
   }
-  
+    
+  // Remove timestamps older than CHANNEL_COOLDOWN
+  for (channelId in user.channels) {
+    if (user.channels.hasOwnProperty(channelId)) {
+      const freshMessages = user.channels[channelId].filter(
+        time => Date.now() - time < CHANNEL_COOLDOWN
+      );
+
+      user.messageCount -= (user.channels[channelId].length - freshMessages.length);
+      user.channels[channelId] = freshMessages;
+    }
+  }
+
   if (links.length > 0 && isSuspicious) {
     // If first time spamming in this channel
     if (!user.channels[channelId]) user.channels[channelId] = [];
@@ -332,18 +341,6 @@ function updateUserMessages(users, userId, channelId, message) {
     // Debug dataStore
     console.log(util.inspect(dataStore, { depth: null, colors: true }));
   }
-  
-  // Return early if new channel hasn't been added yet due to no valid appended scam messages
-  if (!user.channels[channelId]) return users;
-
-  // Remove timestamps older than CHANNEL_COOLDOWN
-  const freshMessages = user.channels[channelId].filter(
-    time => Date.now() - time < CHANNEL_COOLDOWN
-  );
-  user.messageCount -= user.channels[channelId].length - freshMessages.length;
-  user.channels[channelId] = freshMessages;
-  
-  return users;
 }
 
 // Bans user and logs details to bot log channel
