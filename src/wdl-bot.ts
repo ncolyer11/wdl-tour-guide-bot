@@ -143,7 +143,11 @@ client.on('messageCreate', async (message) => {
   checkBan(message);
 
   if (canSendMessage(message, true)) {
-    if (triggerPhrases.some(phrase => message.content.toLowerCase().includes(phrase))) {
+    if (triggerPhrases.some(phrase => message.content
+                              .toLowerCase()
+                              .replace(/['",.\-`()]/g, '')
+                              .includes(phrase)
+      )) {
       message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
       console.log(`Sent message ${messageCount} in response to "world download"`);
       incrementUserReplyCount(message.author.username);
@@ -182,7 +186,7 @@ client.on('messageCreate', async (message) => {
 // Periodically check for new Stemlight releases
 client.once('ready', () => {
   console.log('Checking for new releases...');
-  setInterval(checkForNewRelease, 5 * 60 * 1000); // Check every 5 minutes (in milliseconds)
+  setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 5 minutes (in milliseconds)
 });
 
 /////////////////////////////////////////////////////////////////////////////
