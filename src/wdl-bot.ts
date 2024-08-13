@@ -9,6 +9,7 @@ const client = new Discord.Client({
   ],
   disableMentions: 'everyone'
 });
+
 const { safeRoles, triggerPhrases, otherPhrases, excPhrases, welcomeMessages, channelIds } = require('./strings');
 const path = require('path');
 const fs = require('fs');
@@ -25,10 +26,6 @@ const MAXRETRIES = 5;
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
-
-let messageCount = 0;
-let reached = false;
-let currentHour = new Date().getHours();
 
 interface UserReplyData {
   username: string;
@@ -47,11 +44,21 @@ interface User {
 interface DataStore {
   userReplyData: UserReplyData[];
   users: User[];
+  botMessageCount: number;
+  botLimitReached: boolean;
+  currentHour: number;
+  lastPaperMsgTimestamp: number;
+  lastMessageIndex: number | undefined;
 }
 
 const dataStore: DataStore = {
   userReplyData: [],
-  users: []
+  users: [],
+  botMessageCount: 0,
+  botLimitReached: false,
+  currentHour: new Date().getHours(),
+  lastPaperMsgTimestamp: 0,
+  lastMessageIndex: undefined
 };
 
 // Set interval to update hourly limit every hour
@@ -72,8 +79,7 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-let lastMessageIndex: number;
-let lastPaperMessageTimestamp = 0;
+
 
 client.on('guildMemberAdd', async (member) => {
   // Create a map to store the last join message for each member
@@ -82,6 +88,7 @@ client.on('guildMemberAdd', async (member) => {
   const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6, 7, 3, 4, 6, 5];
 
   let messageIndex: number = weightedRandomIndex(messageRarities);
+  let lastMessageIndex = dataStore.lastMessageIndex;
   if (typeof lastMessageIndex === 'undefined') {
     lastMessageIndex = messageIndex;
   }
@@ -130,8 +137,14 @@ client.on('messageCreate', async (message) => {
   if (message.author.bot) return; // Check if the author is a bot
   updateHourlyLimit();
 
+  // Server owner commands
   if (message.content.startsWith('!prune')) {
     pruneMessages(message);
+  } else if (message.content.startsWith('!data')) {
+    if (message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
+      console.log(util.inspect(dataStore, { depth: null, colors: true }));
+      message.reply('Server data printed to console.');
+    }
   }
 
   const chunkManipulationChannelId = '930048455777325076';
@@ -141,7 +154,7 @@ client.on('messageCreate', async (message) => {
   }
 
   checkBan(message);
-
+  let botMessageCount = dataStore.botMessageCount;
   if (canSendMessage(message, true)) {
     if (triggerPhrases.some(phrase => message.content
                               .toLowerCase()
@@ -149,18 +162,18 @@ client.on('messageCreate', async (message) => {
                               .includes(phrase)
       )) {
       message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
-      console.log(`Sent message ${messageCount} in response to "world download"`);
+      console.log(`Sent message ${botMessageCount} in response to "world download"`);
       incrementUserReplyCount(message.author.username);
-      messageCount++;
+      botMessageCount++;
     } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
     && !excPhrases.some(
       phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
         message.channel.send(
           `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
         );
-        console.log(`Sent message ${messageCount} in response to "tree farm"`);
+        console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
         incrementUserReplyCount(message.author.username);
-        messageCount++;
+        botMessageCount++;
       }
     }
     
@@ -168,15 +181,15 @@ client.on('messageCreate', async (message) => {
     if (message.content.toLowerCase().includes('paper')) {
   
       const now = Date.now();
-      if (now - lastPaperMessageTimestamp >= 60 * 1000) { // 1 minute cooldown
+      if (now - dataStore.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
         // Randomly decide the timestamp
         const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
   
         message.channel.send(`[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`);
         console.log('Sent message in response to paper devs being tarts');
         incrementUserReplyCount(message.author.username);
-        messageCount++;
-        lastPaperMessageTimestamp = now; // update the last message timestamp
+        botMessageCount++;
+        dataStore.lastPaperMsgTimestamp = now; // update the last message timestamp
       }
     }
   }
@@ -222,10 +235,11 @@ Here are some shortcuts to help you on your nether tree farming journey:
 
 function canSendMessage(message, channelRestrict) {
   // Check if the message count has reached the limit
-  if (messageCount >= HOURLY_MSG_LIMIT) {
-    if (!reached) {
-      console.log(`Reached message limit at message count: ${messageCount}`);
-      reached = true;
+
+  if (dataStore.botMessageCount >= HOURLY_MSG_LIMIT) {
+    if (!dataStore.botLimitReached) {
+      console.log(`Reached message limit at message count: ${dataStore.botMessageCount}`);
+      dataStore.botLimitReached = true;
     }
     return false;
   }
@@ -263,11 +277,11 @@ function canSendMessage(message, channelRestrict) {
 // Reset message count and update current hour
 function updateHourlyLimit() {
   const newHour = new Date().getHours();
-  if (newHour !== currentHour) {
-    currentHour = newHour;
-    messageCount = 0;
+  if (newHour !== dataStore.currentHour) {
+    dataStore.currentHour = newHour;
+    dataStore.botMessageCount = 0;
     dataStore.userReplyData = [];
-    reached = false;
+    dataStore.botLimitReached = false;
   }
 }
 
