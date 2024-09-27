@@ -445,7 +445,7 @@ async function pruneMessages(message) {
 
 // Check for new releases of Stemlight and post them to #maths-and-code
 async function checkForNewRelease() {
-  const retryDelay = 5000; // 5 seconds
+  const retryDelay = 5000; // Initial retry delay (5 seconds)
 
   for (let attempt = 1; attempt <= MAXRETRIES; attempt++) {
     try {
@@ -462,6 +462,20 @@ async function checkForNewRelease() {
       });
 
       if (!response.ok) {
+        // Handle rate limiting
+        if (response.status === 403 && response.headers.get('X-RateLimit-Remaining') === '0') {
+          const resetTimeHeader = response.headers.get('X-RateLimit-Reset');
+          if (resetTimeHeader) {
+            const resetTime = parseInt(resetTimeHeader, 10) * 1000;
+            const waitTime = resetTime - Date.now();
+            console.log(`Rate limit exceeded. Retrying in ${Math.ceil(waitTime / 1000)} seconds...`);
+            await new Promise(res => setTimeout(res, waitTime));
+            continue;
+          } else {
+            console.error('X-RateLimit-Reset header not found. Cannot determine wait time.');
+            break;
+          }
+        }
         throw new Error(`GitHub API responded with status ${response.status}`);
       }
 
@@ -494,8 +508,9 @@ async function checkForNewRelease() {
       const err = error as Error;
       console.error(`Attempt ${attempt} failed: ${err.message}`);
       if (attempt < MAXRETRIES) {
-        console.log(`Retrying in ${retryDelay / 1000} seconds...`);
-        await new Promise(res => setTimeout(res, retryDelay));
+        const backoffDelay = retryDelay * attempt; // Exponential backoff
+        console.log(`Retrying in ${backoffDelay / 1000} seconds...`);
+        await new Promise(res => setTimeout(res, backoffDelay));
       } else {
         console.error('Max retries reached. Giving up.');
       }

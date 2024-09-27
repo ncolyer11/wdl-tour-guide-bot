@@ -15,6 +15,7 @@ exports.triggerPhrases = [
   'can i find',
   'i can find',
   'i cant find',
+  'where do i find',
   'where is the farm',
   'where is the download',
   'where is the schematic',
