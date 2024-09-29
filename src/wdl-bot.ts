@@ -126,7 +126,9 @@ client.on('messageDelete', (message) => {
   if (testingChannel) {
     // If any mention found, replace them with text to avoid ping
     const sanitizedContent = message.content.replace(/@everyone/g, '`@everyone`').replace(/@here/g, '`@here`');
-    testingChannel.send(`**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`);
+    if (message.length < 1900) {
+      testingChannel.send(`**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`);
+    }
     console.log('Message deleted');
   }
 });
