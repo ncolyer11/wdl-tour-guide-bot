@@ -87,8 +87,6 @@ exports.excPhrases = [
   'you',
   '13000',
   '13,000'
-  // 'on',
-  // 'java'
 ];
 
 // Define an array of possible welcome messages with different rarities
