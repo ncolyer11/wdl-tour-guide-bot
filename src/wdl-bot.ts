@@ -199,7 +199,7 @@ client.on('messageCreate', async (message) => {
 // Periodically check for new Stemlight releases
 client.once('ready', () => {
   console.log('Checking for new releases...');
-  setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 5 minutes (in milliseconds)
+  setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 15 minutes (in milliseconds)
 });
 
 /////////////////////////////////////////////////////////////////////////////
