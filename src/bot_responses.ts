@@ -5,8 +5,8 @@ interface RoleBias {
 
 // trigger phrases
 exports.wdlHelpKWs = [
-    'can', 'find', 'i', 'where', 'farm', 'download', 'schematic', 'litematic',
-    'world', 'wdl', 'are', 'rapid', '12', '11', 'twelve', 'have', 'fungus', 'anybody', 'got', 'that',
+    'can', 'find', 'where', 'farm', 'download', 'schematic', 'litematic',
+    'world', 'wdl', 'are', 'rapid', '12', '11', 'twelve', 'have', 'fungus', 'anybody', 'got',
     'wheres', 'link', 'tree', 'design'
 ];
 

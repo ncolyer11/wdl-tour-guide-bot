@@ -1,7 +1,9 @@
+import { User } from './wdl-bot';
 const readline = require('readline');
 const { wdlHelpKWs, wdlHelpResponse, specifyFarmResponse, specifyFarmKWs, generalExclusionPhrases,
 	getPaperResponse, rolesData } = require('./bot_responses');
-import { User } from './wdl-bot';
+
+const JOIN_BUF: number = 10; // Grace period for a new user to be considered new by the bot
 
 const rl = readline.createInterface({
 	input: process.stdin,
@@ -58,7 +60,7 @@ function readMessage(userMessage: string, userData: User): string {
 		const responseInfo: ResponseData = botResponses[i];
 		
 		// Calculate acceptance probability based on matched keywords, stored in 'score'
-		let score: number = responseInfo.keywords.filter(keyword => {
+		let matchedKWs: number = responseInfo.keywords.filter(keyword => {
 			// Create a regular expression to match the keyword as a whole word
 			const keywordRegex = new RegExp(`\\b${keyword}\\b`);
 			return [...splitSet].some(word => keywordRegex.test(word));
@@ -67,21 +69,17 @@ function readMessage(userMessage: string, userData: User): string {
 		// Or if essential words are missing
 		// Adjust so you either need 1 or all essential words
 		if (responseInfo.essentialWords.every(ess => splitSet.has(ess))) {
-			score += responseInfo.essentialWords.length;
+			matchedKWs += responseInfo.essentialWords.length;
 		} else {
-			score = 0;
+			matchedKWs = 0;
 		}
 
 		// Or if any exclusion words are found
-		if (responseInfo.exclusionWords.some(exc => splitSet.has(exc))) {
-			score = 0;
-		}
+		if (responseInfo.exclusionWords.some(exc => splitSet.has(exc))) matchedKWs = 0;
 		
-		const totalKeywords = responseInfo.keywords.length + responseInfo.essentialWords.length;
-		const confidence = getConfidence(score, userData, totalKeywords);
+		const confidence = getConfidence(userData, matchedKWs);
 		if (confidence >= responseInfo.acceptanceProbability) {
-			responseLikelihoods.push({responseString: responseInfo.responseString,
-									  likelihood: confidence});
+			responseLikelihoods.push({responseString: responseInfo.responseString, likelihood: confidence});
 		}
 		
 	}
@@ -99,23 +97,31 @@ function readMessage(userMessage: string, userData: User): string {
 }
 
 function getConfidence(
-	score: number,
 	userData: User,
-	totalKeywords: number
+	matchedKWs: number,
 ): number {
+	// Normalise score based on the number of matched keywords
+	let KWscore = 1 - 1 / (matchedKWs + 1);
 	// Apply role bias (usually 0 for people with roles, 1 for everyone else)
 	const roleBias = rolesData.find(roleData => roleData.role === userData.role);
-	if (roleBias) {
-		score *= roleBias.bias;
-	}
-
 	// Higher score for newer users
-	score *=  2 / userData.totalMessageCount;
-	const minutesSinceJoin = (Date.now() - userData.timeJoined) / (60 * 1000);
-	score *= 10 / minutesSinceJoin;
+	const minutesSinceJoin = Math.max(JOIN_BUF, (Date.now() - userData.timeJoined) / (60 * 1000));
+	
+	const weightMatchedKWs = 0.5; 
+	const weightRoleBias = 0.2;
+	const weightMessageCount = 0.1;
+	const weightJoinTime = 0.2;
 
-	// Later I'll factor in the time a user has been a member for
-	return score / totalKeywords;
+	let weightedScore = 
+    weightMatchedKWs * KWscore +
+    weightRoleBias * (roleBias ? roleBias.bias : 1) +
+    weightMessageCount * 1 / Math.log(userData.totalMessageCount + 2) + // Smoothens reduction for higher counts
+    weightJoinTime * Math.min(0.5, Math.exp(-minutesSinceJoin / 10));
+
+	// Normalise score to be between 0 and 1
+	// Scale factor 3 and offset - 0.4 were obtained from testing as most values resided in [0.4, 0.7]
+	let normalisedScore = Math.max(0, Math.min(1, 3 * (weightedScore - 0.4)));
+	return normalisedScore;
 }
 
 function main() {

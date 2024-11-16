@@ -27,6 +27,7 @@ const MAXRETRIES = 5;
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
+const chunkManipulationChannelId = '930048455777325076';
 
 interface UserReplyData {
   username: string;
@@ -163,66 +164,26 @@ client.on('messageDelete', (message) => {
 });
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return; // Check if the author is a bot
+  // Return if the author is a bot to not self-reply or reply to other bots
+  if (message.author.bot) return;
+
+  // If an hour has passed, reset the bot's cooldown metrics and update the current hour
   updateHourlyLimit();
 
-  // Server owner commands
-  if (message.content.startsWith('!prune')) {
-    pruneMessages(message);
-  } else if (message.content.startsWith('!data')) {
-    if (message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
-      console.log(util.inspect(dataStore, { depth: null, colors: true }));
-      message.reply('Server data printed to console.');
-    }
-  }
+  // Runs owner-specific prefixed with '!'
+  const isOwner: boolean = runIfOwnerCommand(message);
 
-  const chunkManipulationChannelId = '930048455777325076';
-  if (message.channel.id === chunkManipulationChannelId) {
+  // Prevent messages in this channel fsr
+  if (message.channel.id === chunkManipulationChannelId && !isOwner) {
     message.delete().catch(error => console.error('Error deleting message:', error));
     console.log("Kept #chunk-manipulation clean")
   }
 
+  // Check for spam and ban user if required
   checkBan(message);
-  let botMessageCount = dataStore.cdMetrics.botMessageCount;
-  if (canSendMessage(message, true)) {
-    if (triggerPhrases.some(phrase => message.content
-                              .toLowerCase()
-                              .replace(/['",.\-`()]/g, '')
-                              .includes(phrase)
-      )) {
-      message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
-      console.log(`Sent message ${botMessageCount} in response to "world download"`);
-      incrementUserReplyCount(message.author.username);
-      botMessageCount++;
-    } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
-               && !excPhrases.some(
-      phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
-        message.channel.send(
-          `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
-        );
-        console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
-        incrementUserReplyCount(message.author.username);
-        botMessageCount++;
-      }
-    }
-    
-  if (canSendMessage(message, false)) {
-    if (message.content.toLowerCase().includes('paper')) {
-  
-      const now = Date.now();
-      if (now - dataStore.cdMetrics.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
-        // Randomly decide the timestamp
-        const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
-  
-        message.channel.send(`[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`);
-        console.log('Sent message in response to paper devs being tarts');
-        incrementUserReplyCount(message.author.username);
-        botMessageCount++;
-        dataStore.cdMetrics.lastPaperMsgTimestamp = now; // update the last message timestamp
-      }
-    }
-  }
-  dataStore.cdMetrics.botMessageCount = botMessageCount;
+
+  // Don't reply to the owner when responding to commonly asked questions
+  if (!isOwner) checkUserMessageForResponse(message);
 });
 
 // Periodically check for new Stemlight releases
@@ -244,6 +205,70 @@ function weightedRandomIndex(weights): number {
     }
   }
   return 0;
+}
+
+// Checks a user's message for trigger phrases and responds accordingly
+function checkUserMessageForResponse(message): void {
+  let botMessageCount = dataStore.cdMetrics.botMessageCount;
+  // Only check for trigger phrases in the specified channels
+  let channelRestrict: boolean = true;
+  if (canSendMessage(message, channelRestrict)) {
+    if (triggerPhrases.some(phrase => message.content
+        .toLowerCase()
+        .replace(/['",.\-`()]/g, '')
+        .includes(phrase)
+      )) {
+      message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
+      console.log(`Sent message ${botMessageCount} in response to "world download"`);
+      incrementUserReplyCount(message.author.username);
+      botMessageCount++;
+    }
+    
+    if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
+        && !excPhrases.some(phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
+      message.channel.send(
+        `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
+      );
+      console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
+      incrementUserReplyCount(message.author.username);
+      botMessageCount++;
+    }
+  }
+
+  channelRestrict = false;
+  if (canSendMessage(message, channelRestrict)) {
+    if (message.content.toLowerCase().includes('paper')) {
+  
+      const now = Date.now();
+      if (now - dataStore.cdMetrics.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
+        // Randomly decide the timestamp
+        const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
+  
+        message.channel.send(`[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`);
+        console.log('Sent message in response to paper devs being tarts');
+        incrementUserReplyCount(message.author.username);
+        botMessageCount++;
+        dataStore.cdMetrics.lastPaperMsgTimestamp = now; // update the last message timestamp
+      }
+    }
+  }
+
+  dataStore.cdMetrics.botMessageCount = botMessageCount;
+}
+
+function runIfOwnerCommand(message): boolean {
+  if (!message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
+    return false;
+  }
+  const msg = message.content;
+  if (msg.startsWith('!prune')) {
+    pruneMessages(message);
+  } else if (msg.startsWith('!data')) {
+    console.log(util.inspect(dataStore, { depth: null, colors: true }));
+    message.reply('Server data printed to console.');
+  }
+
+  return true;
 }
 
 async function dmUser(member): Promise<void> {
