@@ -21,6 +21,7 @@ const util = require('util');
 const HOURLY_MSG_LIMIT = 10;
 const HOURLY_INDV_REPLY_LIMIT = 3;
 const CHANNEL_COOLDOWN = 20000;
+const APPROX_DISCORD_CHAR_LIMIT = 1900;
 const SPAM_MESSAGE_LIMIT = 4;
 const MAXRETRIES = 5;
 const archiveChannel = '1019870085617291305';
@@ -32,18 +33,20 @@ interface UserReplyData {
   replyCount: number;
 }
 
-interface User {
+export interface User {
   name: string;
   userId: string;
+  role: string;
+  timeJoined: number;
+  totalMessageCount: number;
+  recentMessageCount: number;
   channels: {
     [channelId: string]: number[];
   };
-  messageCount: number;
 }
 
-interface DataStore {
-  userReplyData: UserReplyData[];
-  users: User[];
+// Cooldown metrics
+interface cdMetrics {
   botMessageCount: number;
   botLimitReached: boolean;
   currentHour: number;
@@ -51,14 +54,22 @@ interface DataStore {
   lastMessageIndex: number | undefined;
 }
 
+interface DataStore {
+  userReplyData: UserReplyData[];
+  users: User[];
+  cdMetrics: cdMetrics;
+}
+
 const dataStore: DataStore = {
   userReplyData: [],
   users: [],
-  botMessageCount: 0,
-  botLimitReached: false,
-  currentHour: new Date().getHours(),
-  lastPaperMsgTimestamp: 0,
-  lastMessageIndex: undefined
+  cdMetrics: {
+    botMessageCount: 0,
+    botLimitReached: false,
+    currentHour: new Date().getHours(),
+    lastPaperMsgTimestamp: 0,
+    lastMessageIndex: undefined
+  }
 };
 
 // Set interval to update hourly limit every hour
@@ -80,13 +91,23 @@ process.on('SIGINT', async () => {
 });
 
 client.on('guildMemberAdd', async (member) => {
-  // Create a map to store the last join message for each member
-  const joinMessages = new Map();
+  let user: User = {
+    name: member.user.username,
+    userId: member.id,
+    role: member.roles.highest.name,
+    timeJoined: Date.now(),
+    totalMessageCount: 0,
+    recentMessageCount: 0,
+    channels: {},
+  };
+  dataStore.users.push(user);
+
   // Define an array of integers representing the relative rarities of each welcome message
-  const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6, 7, 3, 4, 6, 5];
+  const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6,
+                           7, 3, 4, 6, 5];
 
   let messageIndex: number = weightedRandomIndex(messageRarities);
-  let lastMessageIndex = dataStore.lastMessageIndex;
+  let lastMessageIndex = dataStore.cdMetrics.lastMessageIndex;
   if (typeof lastMessageIndex === 'undefined') {
     lastMessageIndex = messageIndex;
   }
@@ -97,11 +118,13 @@ client.on('guildMemberAdd', async (member) => {
   }
 
   const message: string = welcomeMessages[messageIndex];
-  const welcomeMessage: string = `${message}`.replace('{member}', `<@${member.id}>`).replace('{archive}', `<#${archiveChannel}>`).replace('{Froge}', `<:Froge:930083494938411018>`);
-  const sentMessage = member.guild.systemChannel.send(welcomeMessage);
+  const welcomeMessage: string = `${message}`
+    .replace('{member}', `<@${member.id}>`)
+    .replace('{archive}', `<#${archiveChannel}>`)
+    .replace('{Froge}', `<:Froge:930083494938411018>`);
+  member.guild.systemChannel.send(welcomeMessage);
 
-  joinMessages.set(member.id, sentMessage);
-  lastMessageIndex = messageIndex;
+  dataStore.cdMetrics.lastMessageIndex = messageIndex;
   console.log(`Sent welcome message to ${member.user.tag}`);
 
   await dmUser(member);
@@ -125,10 +148,15 @@ client.on('messageDelete', (message) => {
   const testingChannel = message.guild.channels.cache.get(testingChannelId);
   if (testingChannel) {
     // If any mention found, replace them with text to avoid ping
-    const sanitizedContent = message.content.replace(/@everyone/g, '`@everyone`').replace(/@here/g, '`@here`');
+    const sanitizedContent = message.content
+      .replace(/@everyone/g, '`@everyone`')
+      .replace(/@here/g, '`@here`');
     console.log(message)
-    if (message.content.length < 1900) {
-      testingChannel.send(`**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`);
+
+    if (message.content.length < APPROX_DISCORD_CHAR_LIMIT) {
+      testingChannel.send(
+        `**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`
+      );
     }
     console.log('Message deleted');
   }
@@ -155,7 +183,7 @@ client.on('messageCreate', async (message) => {
   }
 
   checkBan(message);
-  let botMessageCount = dataStore.botMessageCount;
+  let botMessageCount = dataStore.cdMetrics.botMessageCount;
   if (canSendMessage(message, true)) {
     if (triggerPhrases.some(phrase => message.content
                               .toLowerCase()
@@ -167,7 +195,7 @@ client.on('messageCreate', async (message) => {
       incrementUserReplyCount(message.author.username);
       botMessageCount++;
     } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
-    && !excPhrases.some(
+               && !excPhrases.some(
       phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
         message.channel.send(
           `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
@@ -182,7 +210,7 @@ client.on('messageCreate', async (message) => {
     if (message.content.toLowerCase().includes('paper')) {
   
       const now = Date.now();
-      if (now - dataStore.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
+      if (now - dataStore.cdMetrics.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
         // Randomly decide the timestamp
         const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
   
@@ -190,10 +218,11 @@ client.on('messageCreate', async (message) => {
         console.log('Sent message in response to paper devs being tarts');
         incrementUserReplyCount(message.author.username);
         botMessageCount++;
-        dataStore.lastPaperMsgTimestamp = now; // update the last message timestamp
+        dataStore.cdMetrics.lastPaperMsgTimestamp = now; // update the last message timestamp
       }
     }
   }
+  dataStore.cdMetrics.botMessageCount = botMessageCount;
 });
 
 // Periodically check for new Stemlight releases
@@ -236,10 +265,10 @@ Here are some shortcuts to help you on your nether tree farming journey:
 function canSendMessage(message, channelRestrict) {
   // Check if the message count has reached the limit
 
-  if (dataStore.botMessageCount >= HOURLY_MSG_LIMIT) {
-    if (!dataStore.botLimitReached) {
-      console.log(`Reached message limit at message count: ${dataStore.botMessageCount}`);
-      dataStore.botLimitReached = true;
+  if (dataStore.cdMetrics.botMessageCount >= HOURLY_MSG_LIMIT) {
+    if (!dataStore.cdMetrics.botLimitReached) {
+      console.log(`Reached message limit at message count: ${dataStore.cdMetrics.botMessageCount}`);
+      dataStore.cdMetrics.botLimitReached = true;
     }
     return false;
   }
@@ -277,11 +306,11 @@ function canSendMessage(message, channelRestrict) {
 // Reset message count and update current hour
 function updateHourlyLimit() {
   const newHour = new Date().getHours();
-  if (newHour !== dataStore.currentHour) {
-    dataStore.currentHour = newHour;
-    dataStore.botMessageCount = 0;
+  if (newHour !== dataStore.cdMetrics.currentHour) {
+    dataStore.cdMetrics.currentHour = newHour;
+    dataStore.cdMetrics.botMessageCount = 0;
     dataStore.userReplyData = [];
-    dataStore.botLimitReached = false;
+    dataStore.cdMetrics.botLimitReached = false;
   }
 }
 
@@ -291,22 +320,40 @@ function updateHourlyLimit() {
 async function checkBan(message) {
   const { author, guild, channel } = message;
   let users = dataStore.users;
-  updateUserMessages(users, author.id, channel.id, message);
+  updateUserMessages(users, channel.id, message);
   
   const user = users.find(user => user.userId === author.id);
   // Check for ban conditions
-  if (user && user.messageCount >= SPAM_MESSAGE_LIMIT){
+  if (user && user.recentMessageCount >= SPAM_MESSAGE_LIMIT){
     await banUser(guild, author, channel, message.content);
     return;
   }
 }
 
 // Function to update user's message timestamps
-function updateUserMessages(users, userId, channelId, message) {
-  let user = users.find(user => user.userId === userId);
-  const links = linkify.find(message.content);
+function updateUserMessages(users, channelId, message) {
   const { author } = message;
+  const userId = author.id;
+  const role = author.roles.highest.name;
+  let user = users.find(user => user.userId === userId);
   
+  if (!user) {
+    user = {
+      name: author.username,
+      userId,
+      role,
+      timeJoined: 0,
+      totalMessageCount: 0,
+      recentMessageCount: 0,
+      channels: {},
+    };
+    users.push(user);
+  }
+
+  user.latestMessageTimestamp = Date.now(); // Update latest message timestamp
+  user.totalMessageCount++; // Increment total message count
+  
+  const links = linkify.find(message.content);
   // Update user's message timestamps
   const keywords = [
     '@everyone', '@here', 'steam', 'discord', 'discord nitro', 'free nitro', 'free gift',
@@ -314,15 +361,6 @@ function updateUserMessages(users, userId, channelId, message) {
   ];
   const isSuspicious = keywords.some(keyword => message.content.includes(keyword));
   
-  if (!user) {
-    user = {
-      name: author.username,
-      userId,
-      channels: {},
-      messageCount: 0
-    };
-    users.push(user);
-  }
     
   // Remove timestamps older than CHANNEL_COOLDOWN
   for (channelId in user.channels) {
@@ -331,7 +369,7 @@ function updateUserMessages(users, userId, channelId, message) {
         time => Date.now() - time < CHANNEL_COOLDOWN
       );
 
-      user.messageCount -= (user.channels[channelId].length - freshMessages.length);
+      user.recentMessageCount -= (user.channels[channelId].length - freshMessages.length);
       user.channels[channelId] = freshMessages;
     }
   }
@@ -340,7 +378,7 @@ function updateUserMessages(users, userId, channelId, message) {
     // If first time spamming in this channel
     if (!user.channels[channelId]) user.channels[channelId] = [];
     user.channels[channelId].push(Date.now());
-    user.messageCount++;
+    user.recentMessageCount++;
     // Debug dataStore
     console.log(util.inspect(dataStore, { depth: null, colors: true }));
   }
