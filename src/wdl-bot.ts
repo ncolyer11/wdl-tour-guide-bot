@@ -59,6 +59,7 @@ interface DataStore {
   userReplyData: UserReplyData[];
   users: User[];
   cdMetrics: cdMetrics;
+  // add last release tag here
 }
 
 const dataStore: DataStore = {
