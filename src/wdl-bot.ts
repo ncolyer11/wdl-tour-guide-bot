@@ -49,6 +49,7 @@ interface DataStore {
   currentHour: number;
   lastPaperMsgTimestamp: number;
   lastMessageIndex: number | undefined;
+  latestStemlightReleaseTag: string;
 }
 
 let dataStore: DataStore;
@@ -216,7 +217,8 @@ function loadDatabase(): DataStore {
       botLimitReached: false,
       currentHour: new Date().getHours(),
       lastPaperMsgTimestamp: 0,
-      lastMessageIndex: undefined
+      lastMessageIndex: undefined,
+      latestStemlightReleaseTag: ''
     };
   }
 }
@@ -549,6 +551,11 @@ async function checkForNewRelease() {
 
 // Retrieve the last known release tag from a file
 function getLastReleaseTag() {
+  // Keep loose backwards compatibility for now
+  const useDataBase: boolean = true;
+  if (useDataBase) {
+    return dataStore.latestStemlightReleaseTag;
+  }
   const filePath = path.join(__dirname, 'last_release.txt');
   try {
       // Read the content of the file
@@ -562,6 +569,12 @@ function getLastReleaseTag() {
 
 // Update the last known release tag in a file
 function updateLastReleaseTag(tag) {
+  // Keep loose backwards compatibility for now
+  const useDataBase: boolean = true;
+  if (useDataBase) {
+    dataStore.latestStemlightReleaseTag = tag;
+    return;
+  }
   const filePath = path.join(__dirname, 'last_release.txt');
   try {
       // Write the tag to the file
