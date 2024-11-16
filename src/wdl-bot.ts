@@ -42,14 +42,14 @@ interface User {
 }
 
 interface DataStore {
-  userReplyData: UserReplyData[];
-  users: User[];
   botMessageCount: number;
   botLimitReached: boolean;
   currentHour: number;
   lastPaperMsgTimestamp: number;
   lastMessageIndex: number | undefined;
   latestStemlightReleaseTag: string;
+  userReplyData: UserReplyData[];
+  users: User[];
 }
 
 let dataStore: DataStore;
@@ -60,10 +60,10 @@ setInterval(updateHourlyLimit, 1000 * 60 * 60);
 /////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// End Points /////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-client.on('ready', () => {
+client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
-  dataStore = loadDatabase();
+  dataStore = await loadDatabase();
   setInterval(saveDatabase, 1000 * 60 * 15); // Save every 15 minutes
 });
 
@@ -135,13 +135,20 @@ client.on('messageCreate', async (message) => {
   updateHourlyLimit();
 
   // Server owner commands
-  if (message.content.startsWith('!prune')) {
-    pruneMessages(message);
-  } else if (message.content.startsWith('!data')) {
-    if (message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
+  if (message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
+    if (message.content.startsWith('!prune')) {
+      pruneMessages(message);
+    } else if (message.content.startsWith('!data')) {
       console.log(util.inspect(dataStore, { depth: null, colors: true }));
       saveDatabase();
       message.reply('Server data saved and printed to console.');
+    } else if (message.content.startsWith('!backup')) {
+      const backedUp = await backupDatabase();
+      if (backedUp) {
+        message.reply('Server data successfully backed up.');
+      } else {
+        message.reply('Error backing up server data.');
+      }
     }
   }
 
@@ -202,7 +209,7 @@ client.once('ready', () => {
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////// Functions /////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-function loadDatabase(): DataStore {
+async function loadDatabase(): Promise<DataStore> {
   const databaseFilePath = path.join(__dirname, 'database.json');
   try {
     const data = fs.readFileSync(databaseFilePath, 'utf8');
@@ -210,16 +217,23 @@ function loadDatabase(): DataStore {
     return JSON.parse(data);
   } catch (error) {
     console.error('Error loading database:', error);
-    return {
-      userReplyData: [],
-      users: [],
-      botMessageCount: 0,
-      botLimitReached: false,
-      currentHour: new Date().getHours(),
-      lastPaperMsgTimestamp: 0,
-      lastMessageIndex: undefined,
-      latestStemlightReleaseTag: ''
-    };
+    // If can't load from file :/ try loading from backup :?
+    const backedUpData: DataStore | false = await loadFromBackup();
+    if (backedUpData) {
+      return backedUpData;
+    // If even the backup fails :[ start fresh :(((
+    } else {
+      return {
+        botMessageCount: 0,
+        botLimitReached: false,
+        currentHour: new Date().getHours(),
+        lastPaperMsgTimestamp: 0,
+        lastMessageIndex: undefined,
+        latestStemlightReleaseTag: '',
+        userReplyData: [],
+        users: []
+      };
+    }
   }
 }
 
@@ -230,6 +244,36 @@ async function saveDatabase(): Promise<void> {
     console.log('Database saved successfully');
   } catch (error) {
     console.error('Error saving database:', error);
+  }
+
+  // Backup the database every 12 hours
+  const currentHour = new Date().getHours();
+  if (currentHour % 12 === 0) await backupDatabase();
+}
+
+// Backup the database to a separate file for redundancy
+async function backupDatabase(): Promise<boolean> {
+  const backupFilePath = path.join(__dirname, 'database_backup.json');
+  try {
+    fs.copyFileSync(path.join(__dirname, 'database.json'), backupFilePath);
+    console.log('Database backed up successfully');
+    return true;
+  } catch (error) {
+    console.error('Error backing up database:', error);
+    return false;
+  }
+}
+
+async function loadFromBackup(): Promise<DataStore | false> {
+  const backupFilePath = path.join(__dirname, 'database_backup.json');
+  try {
+    const data = fs.readFileSync(backupFilePath, 'utf8');
+    console.log('Backup loaded successfully');
+    dataStore = JSON.parse(data);
+    return dataStore;
+  } catch (error) {
+    console.error('Error loading backup:', error);
+    return false;
   }
 }
 
@@ -436,11 +480,6 @@ async function sendBotOfflineMessage() {
 
 // Mass delete new messages
 async function pruneMessages(message) {
-  // Check if the author has the authorised role
-  if (!message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
-    return;
-  }
-
   // Extract the number of messages to prune
   const args = message.content.split(' ');
   const numMessages = parseInt(args[1]);
