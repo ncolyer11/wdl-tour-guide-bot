@@ -217,6 +217,7 @@ function loadDatabase(): DataStore {
   const databaseFilePath = path.join(__dirname, 'database.json');
   try {
     const data = fs.readFileSync(databaseFilePath, 'utf8');
+    console.log('Database loaded successfully');
     return JSON.parse(data);
   } catch (error) {
     console.error('Error loading database:', error);
