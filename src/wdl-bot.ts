@@ -51,15 +51,7 @@ interface DataStore {
   lastMessageIndex: number | undefined;
 }
 
-const dataStore: DataStore = {
-  userReplyData: [],
-  users: [],
-  botMessageCount: 0,
-  botLimitReached: false,
-  currentHour: new Date().getHours(),
-  lastPaperMsgTimestamp: 0,
-  lastMessageIndex: undefined
-};
+let dataStore: DataStore;
 
 // Set interval to update hourly limit every hour
 setInterval(updateHourlyLimit, 1000 * 60 * 60);
@@ -70,10 +62,25 @@ setInterval(updateHourlyLimit, 1000 * 60 * 60);
 client.on('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
+  try {
+    dataStore = loadDatabase();
+  } catch {
+    dataStore = {
+      userReplyData: [],
+      users: [],
+      botMessageCount: 0,
+      botLimitReached: false,
+      currentHour: new Date().getHours(),
+      lastPaperMsgTimestamp: 0,
+      lastMessageIndex: undefined
+    };
+  }
+  setInterval(saveDatabase, 1000 * 60 * 15); // Save every 15 minutes
 });
 
 // Event handler for when the bot is closed using Ctrl + C
 process.on('SIGINT', async () => {
+  await saveDatabase(); // Ensure the database is saved before closing
   await sendBotOfflineMessage();
   console.log('Bot is closing...');
   process.exit(0);
@@ -101,7 +108,7 @@ client.on('guildMemberAdd', async (member) => {
   const sentMessage = member.guild.systemChannel.send(welcomeMessage);
 
   joinMessages.set(member.id, sentMessage);
-  lastMessageIndex = messageIndex;
+  dataStore.lastMessageIndex = messageIndex;
   console.log(`Sent welcome message to ${member.user.tag}`);
 
   await dmUser(member);
@@ -205,6 +212,35 @@ client.once('ready', () => {
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////// Functions /////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
+function loadDatabase(): DataStore {
+  const databaseFilePath = path.join(__dirname, 'database.json');
+  try {
+    const data = fs.readFileSync(databaseFilePath, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading database:', error);
+    return {
+      userReplyData: [],
+      users: [],
+      botMessageCount: 0,
+      botLimitReached: false,
+      currentHour: new Date().getHours(),
+      lastPaperMsgTimestamp: 0,
+      lastMessageIndex: undefined
+    };
+  }
+}
+
+async function saveDatabase(): Promise<void> {
+  const databaseFilePath = path.join(__dirname, 'database.json');
+  try {
+    fs.writeFileSync(databaseFilePath, JSON.stringify(dataStore, null, 2), 'utf8');
+    console.log('Database saved successfully');
+  } catch (error) {
+    console.error('Error saving database:', error);
+  }
+}
+
 function weightedRandomIndex(weights): number {
   let totalWeight = weights.reduce((acc, w) => acc + w);
   let random = Math.random() * totalWeight;
