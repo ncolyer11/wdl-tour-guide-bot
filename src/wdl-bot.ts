@@ -39,7 +39,7 @@ export interface User {
   role: string;
   timeJoined: number;
   totalMessageCount: number;
-  recentMessageCount: number;
+  recentMessageCount: number; // Number of messages sent in the last 20 or so seconds
   channels: {
     [channelId: string]: number[];
   };
@@ -337,12 +337,13 @@ function updateUserMessages(users, channelId, message) {
   const role = author.roles.highest.name;
   let user = users.find(user => user.userId === userId);
   
+  // In case somehow the userId changed since the user was added to dataStore
   if (!user) {
     user = {
       name: author.username,
       userId,
       role,
-      timeJoined: 0,
+      timeJoined: Date.now(),
       totalMessageCount: 0,
       recentMessageCount: 0,
       channels: {},

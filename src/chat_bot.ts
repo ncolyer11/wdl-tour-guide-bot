@@ -110,7 +110,9 @@ function getConfidence(
 	}
 
 	// Higher score for newer users
-	score *=  2 / userData.totalMessageCount; 
+	score *=  2 / userData.totalMessageCount;
+	const minutesSinceJoin = (Date.now() - userData.timeJoined) / (60 * 1000);
+	score *= 10 / minutesSinceJoin;
 
 	// Later I'll factor in the time a user has been a member for
 	return score / totalKeywords;
