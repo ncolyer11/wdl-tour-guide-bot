@@ -151,7 +151,8 @@ client.on('messageCreate', async (message) => {
   } else if (message.content.startsWith('!data')) {
     if (message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
       console.log(util.inspect(dataStore, { depth: null, colors: true }));
-      message.reply('Server data printed to console.');
+      saveDatabase();
+      message.reply('Server data saved and printed to console.');
     }
   }
 
