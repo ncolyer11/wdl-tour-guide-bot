@@ -62,19 +62,7 @@ setInterval(updateHourlyLimit, 1000 * 60 * 60);
 client.on('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
-  try {
-    dataStore = loadDatabase();
-  } catch {
-    dataStore = {
-      userReplyData: [],
-      users: [],
-      botMessageCount: 0,
-      botLimitReached: false,
-      currentHour: new Date().getHours(),
-      lastPaperMsgTimestamp: 0,
-      lastMessageIndex: undefined
-    };
-  }
+  dataStore = loadDatabase();
   setInterval(saveDatabase, 1000 * 60 * 15); // Save every 15 minutes
 });
 
