@@ -76,8 +76,6 @@ process.on('SIGINT', async () => {
 });
 
 client.on('guildMemberAdd', async (member) => {
-  // Create a map to store the last join message for each member
-  const joinMessages = new Map();
   // Define an array of integers representing the relative rarities of each welcome message
   const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6, 7, 3, 4, 6, 5];
 
@@ -94,26 +92,28 @@ client.on('guildMemberAdd', async (member) => {
 
   const message: string = welcomeMessages[messageIndex];
   const welcomeMessage: string = `${message}`.replace('{member}', `<@${member.id}>`).replace('{archive}', `<#${archiveChannel}>`).replace('{Froge}', `<:Froge:930083494938411018>`);
-  const sentMessage = member.guild.systemChannel.send(welcomeMessage);
+  await sendMessage(member.guild.systemChannel, welcomeMessage);
 
-  joinMessages.set(member.id, sentMessage);
   dataStore.lastMessageIndex = messageIndex;
   console.log(`Sent welcome message to ${member.user.tag}`);
 
   await dmUser(member);
 });
 
-client.on('guildMemberRemove', (member) => {
+client.on('guildMemberRemove', async (member) => {
   // Send a message in the 'bot-testing' channel when a member leaves the server
   const testingChannelId = '1094609234978668765';
   const testingChannel = member.guild.channels.cache.get(testingChannelId);
 
   if (testingChannel) {
-    testingChannel.send(`${member.user.tag} has left the server.`);
+    await sendMessage(testingChannel, `${member.user.tag} has left the server.`);
   }
+
+  // Free up some much needed space now that we don't need them anymore
+  dataStore.users = dataStore.users.filter(user => user.userId !== member.id);
 });
 
-client.on('messageDelete', (message) => {
+client.on('messageDelete', async (message) => {
   if (message.author.bot || message.client.user.id === message.author.id) {
     return;
   }
@@ -124,7 +124,10 @@ client.on('messageDelete', (message) => {
     const sanitizedContent = message.content.replace(/@everyone/g, '`@everyone`').replace(/@here/g, '`@here`');
     console.log(message)
     if (message.content.length < 1900) {
-      testingChannel.send(`**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`);
+      await sendMessage(
+        testingChannel,
+        `**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`
+      );
     }
     console.log('Message deleted');
   }
@@ -160,37 +163,43 @@ client.on('messageCreate', async (message) => {
 
   checkBan(message);
   let botMessageCount = dataStore.botMessageCount;
-  if (canSendMessage(message, true)) {
+  if (await canSendMessage(message, true)) {
     if (triggerPhrases.some(phrase => message.content
                               .toLowerCase()
                               .replace(/['",.\-`()]/g, '')
                               .includes(phrase)
       )) {
-      message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
+      await sendMessage(
+        message.channel,
+        `Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`
+      );
       console.log(`Sent message ${botMessageCount} in response to "world download"`);
       incrementUserReplyCount(message.author.username);
       botMessageCount++;
     } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
     && !excPhrases.some(
       phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
-        message.channel.send(
-          `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
-        );
+      await sendMessage(
+        message.channel,
+        `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
+      );
         console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
         incrementUserReplyCount(message.author.username);
         botMessageCount++;
       }
     }
     
-  if (canSendMessage(message, false)) {
+  if (await canSendMessage(message, false)) {
     if (message.content.toLowerCase().includes('paper')) {
   
       const now = Date.now();
       if (now - dataStore.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
         // Randomly decide the timestamp
         const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
-  
-        message.channel.send(`[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`);
+        await sendMessage(
+          message.channel,
+          `[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`
+        );
         console.log('Sent message in response to paper devs being tarts');
         incrementUserReplyCount(message.author.username);
         botMessageCount++;
@@ -255,6 +264,7 @@ async function saveDatabase(): Promise<void> {
 async function backupDatabase(): Promise<boolean> {
   const backupFilePath = path.join(__dirname, 'database_backup.json');
   try {
+    await saveDatabase();
     fs.copyFileSync(path.join(__dirname, 'database.json'), backupFilePath);
     console.log('Database backed up successfully');
     return true;
@@ -301,13 +311,22 @@ Here are some shortcuts to help you on your nether tree farming journey:
     await member.send(dmMessage);
     console.log(`Sent DM to ${member.user.tag}`);
   } catch (error) {
-    console.error(`Error sending DM to ${member.user.tag}:`, error);
+    console.error(`Error sending DM to ${member.user.tag}. User likely doesn't accept DMs.`);
   }
 }
 
-function canSendMessage(message, channelRestrict) {
-  // Check if the message count has reached the limit
+async function sendMessage(channel, content): Promise<boolean> {
+  try {
+    await channel.send(content);
+    return true;
+  } catch (error) {
+    console.error('Error sending message:', content.substring(0, 30), '\nError: ', error);
+    return false;
+  }
+}
 
+async function canSendMessage(message, channelRestrict) {
+  // Check if the message count has reached the limit
   if (dataStore.botMessageCount >= HOURLY_MSG_LIMIT) {
     if (!dataStore.botLimitReached) {
       console.log(`Reached message limit at message count: ${dataStore.botMessageCount}`);
@@ -320,7 +339,7 @@ function canSendMessage(message, channelRestrict) {
     user => user.username === message.author.username);
   if (user && user.replyCount >= HOURLY_INDV_REPLY_LIMIT) {
     if (user.replyCount == HOURLY_INDV_REPLY_LIMIT) { 
-      message.channel.send(`Hey ${message.author}, please relax your use of my features.`);
+      await sendMessage(message.channel, `Hey ${message.author}, please relax your use of my features.`);
       incrementUserReplyCount(message.author.username);
     }
     console.log(
@@ -435,7 +454,9 @@ async function banUser(guild, user, channel, messageContent) {
       const sanitizedContent = messageContent
         .replace(/@everyone/g, '`@everyone`')
         .replace(/@here/g, '`@here`');
-      testingChannel.send(
+      
+      await sendMessage(
+        testingChannel,
         `**Deleted Message:** \n- Banned User: *${user.username}*\n- Channel: ${channel.name}\n- Message: "${sanitizedContent}"`
       );
     }
@@ -443,17 +464,17 @@ async function banUser(guild, user, channel, messageContent) {
 }
 
 // Send a message when the bot auto bans a scammer
-function sendBanMessage(user, channel) {
+async function sendBanMessage(user, channel) {
   const embedMessage = new EmbedBuilder()
     .setColor('#111111')
     .setTitle(`🔨 Banned User: ${user.username} 🚫`)
     .setDescription('Looks like they won\'t be spamming any longer');
-
-  channel.send({ embeds: [embedMessage] })
+  
+  await sendMessage(channel, { embeds: [embedMessage] });
 }
 
 // Send a message when the bot is started
-function sendBotOnlineMessage() {
+async function sendBotOnlineMessage() {
   const embedMessage = new EmbedBuilder()
     .setColor('#00CCEE')
     .setTitle('🤖 Bot Online ⚡')
@@ -461,7 +482,7 @@ function sendBotOnlineMessage() {
 
   const welcomeChannel = client.channels.cache.get(channelIds[2]);
   if (welcomeChannel) {
-    welcomeChannel.send({ embeds: [embedMessage] });
+    await sendMessage(welcomeChannel, { embeds: [embedMessage] });
   }
 }
 
@@ -474,7 +495,7 @@ async function sendBotOfflineMessage() {
 
   const welcomeChannel = client.channels.cache.get(channelIds[2]);
   if (welcomeChannel) {
-    await welcomeChannel.send({ embeds: [embedMessage] });
+    await sendMessage(welcomeChannel, { embeds: [embedMessage] });
   }
 }
 
@@ -491,7 +512,14 @@ async function pruneMessages(message) {
   }
 
   // Confirm the prune operation
-  const confirmationMessage = await message.channel.send(`Are you sure you want to prune the last ${numMessages} messages? Type \`confirm\` to proceed.`);
+  let confirmationMessage;
+  try {
+    confirmationMessage = await message.channel.send(
+      `Are you sure you want to prune the last ${numMessages} messages? Type \`confirm\` to proceed.`
+    );
+  } catch (error) {
+    console.log(`Error Sending Prune Confirmation Message: ${error}`);
+  }
 
   // Wait for confirmation from the user
   const filter = m => m.author.id === message.author.id && m.content.toLowerCase() === 'confirm';
@@ -567,8 +595,8 @@ async function checkForNewRelease() {
             embeds.push(fileEmbed);
             embed.setDescription(embed.data.description.replace(new RegExp(`\\!\\[.*?\\]\\(${url}\\)`, 'g'), '  - *see attached image*'));
           });
-
-          channel.send({ embeds });
+          
+          await sendMessage(channel, { embeds });
         }
         updateLastReleaseTag(data.tag_name);
       }
