@@ -103,7 +103,7 @@ function getConfidence(
 	// Normalise score based on the number of matched keywords
 	let KWscore = 1 - 1 / (matchedKWs + 1);
 	// Apply role bias (usually 0 for people with roles, 1 for everyone else)
-	const roleBias = rolesData.find(roleData => roleData.role === userData.role);
+	const roleBias = rolesData.find(roleData => roleData.role === userData.roles[0]);
 	// Higher score for newer users
 	const minutesSinceJoin = Math.max(JOIN_BUF, (Date.now() - userData.timeJoined) / (60 * 1000));
 	
@@ -128,10 +128,10 @@ function main() {
 	const mockUser: User = {
 		name: 'testUser',
 		userId: '12345',
-		role: 'none',
+		roles: ['@everyone'],
 		timeJoined: Date.now(),
 		totalMessageCount: 2,
-		recentMessageCount: 0,
+		recentSusMessageCount: 0,
 		channels: {}
 	};
   rl.question("Enter a message: ", (userInput) => {
