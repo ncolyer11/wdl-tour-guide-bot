@@ -40,7 +40,7 @@ export interface User {
   roles: string[];
   timeJoined: number;
   totalMessageCount: number;
-  recentMessageCount: number; // Number of messages sent in the last 20 or so seconds
+  recentSusMessageCount: number; // Number of messages sent in the last 20 or so seconds
   channels: {
     [channelId: string]: number[];
   };
@@ -94,7 +94,7 @@ client.on('guildMemberAdd', async (member) => {
     roles: member.roles.cache.map(role => role.name), // ensure it's an array of strings
     timeJoined: Date.now(),
     totalMessageCount: 0,
-    recentMessageCount: 0,
+    recentSusMessageCount: 0,
     channels: {},
   };
   dataStore.users.push(user);
@@ -171,15 +171,14 @@ client.on('messageCreate', async (message) => {
   // Prevent messages in this channel fsr
   cleanChunkManipulation(message, isOwner);
   
-  // Return if the author is a bot to not self-reply or reply to other bots
+  // Return if the author a bot to not self-reply or reply to other bots
   if (message.author.bot) return;
   
   // Check for spam and ban user if required
   const didBan: boolean = await checkBan(message);
 
-  // Skip if the user was banned or is the owner, when responding to commonly asked questions
-  // if (!isOwner && !didBan) checkUserMessageForResponse(message);
-  if (!didBan) checkUserMessageForResponse(message);
+  // Skip if the user was banned when responding to commonly asked questions
+  if (!didBan) checkUserMessageForResponse(message, isOwner);
 });
 
 // Periodically check for new Stemlight releases
@@ -307,11 +306,12 @@ function weightedRandomIndex(weights): number {
 }
 
 // Checks a user's message for trigger phrases and responds accordingly
-async function checkUserMessageForResponse(message): Promise<void> {
+async function checkUserMessageForResponse(message, isOwner): Promise<void> {
   let botMessageCount = dataStore.cdMetrics.botMessageCount;
   // Only check for trigger phrases in the specified channels
   let channelRestrict: boolean = true;
-  if (await canSendMessage(message, channelRestrict)) {
+  let botReplied: boolean = false;
+  if (isOwner || await canSendMessage(message, channelRestrict)) {
     if (triggerPhrases.some(phrase => message.content
         .toLowerCase()
         .replace(/['",.\-`()]/g, '')
@@ -321,6 +321,7 @@ async function checkUserMessageForResponse(message): Promise<void> {
       console.log(`Sent message ${botMessageCount} in response to "world download"`);
       incrementUserReplyCount(message.author.username);
       botMessageCount++;
+      botReplied = true;
 
     } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
         && !excPhrases.some(phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
@@ -330,13 +331,14 @@ async function checkUserMessageForResponse(message): Promise<void> {
       console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
       incrementUserReplyCount(message.author.username);
       botMessageCount++;
+      botReplied = true;
     }
   }
-
-  channelRestrict = false;
-  if (await canSendMessage(message, channelRestrict)) {
-    if (message.content.toLowerCase().includes('paper')) {
   
+  channelRestrict = false;
+  if (!botReplied && (isOwner || await canSendMessage(message, channelRestrict))) {
+    if (message.content.toLowerCase().includes('paper')) {
+      console.log("Paper devs being tarts");
       const now = Date.now();
       if (now - dataStore.cdMetrics.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
         // Randomly decide the timestamp
@@ -346,6 +348,7 @@ async function checkUserMessageForResponse(message): Promise<void> {
         console.log('Sent message in response to paper devs being tarts');
         incrementUserReplyCount(message.author.username);
         botMessageCount++;
+        botReplied = true;
         dataStore.cdMetrics.lastPaperMsgTimestamp = now; // update the last message timestamp
       }
     }
@@ -355,7 +358,11 @@ async function checkUserMessageForResponse(message): Promise<void> {
 }
 
 async function runIfOwnerCommand(message): Promise<boolean> {
-  if (!message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
+  const hasOwnerRole = message.member.roles.cache.some(
+    role => role.name === 'slightly different shade of cyan'
+  );
+  // Return false if not owner
+  if (!(hasOwnerRole || message.author.username === 'ncolyer')) {
     return false;
   }
   const msg = message.content;
@@ -372,6 +379,9 @@ async function runIfOwnerCommand(message): Promise<boolean> {
     } else {
       message.reply('Error backing up server data.');
     }
+  } else if (message.content.startsWith('!reload')) {
+    await loadDatabase();
+    message.reply('Server data reloaded.');
   }
 
   return true;
@@ -464,9 +474,8 @@ async function checkBan(message): Promise<boolean> {
   
   const user = dataStore.users.find(user => user.userId === author.id);
   // Check for ban conditions
-  if (user && user.recentMessageCount >= SPAM_MESSAGE_LIMIT){
+  if (user && user.recentSusMessageCount >= SPAM_MESSAGE_LIMIT){
     await banUser(guild, author, channel, message.content);
-    return true;
   }
 
   return false;
@@ -489,13 +498,12 @@ function updateUserMessages(channelId, message) {
       roles,
       timeJoined: Date.now(),
       totalMessageCount: 0,
-      recentMessageCount: 0,
+      recentSusMessageCount: 0,
       channels: {},
     };
     dataStore.users.push(user);
   }
 
-  user.recentMessageCount++;
   user.totalMessageCount++; // Increment total message count
   
   const links = linkify.find(message.content);
@@ -514,7 +522,7 @@ function updateUserMessages(channelId, message) {
         time => Date.now() - time < CHANNEL_COOLDOWN
       );
 
-      user.recentMessageCount -= (user.channels[channelId].length - freshMessages.length);
+      user.recentSusMessageCount -= (user.channels[channelId].length - freshMessages.length);
       user.channels[channelId] = freshMessages;
     }
   }
@@ -522,8 +530,8 @@ function updateUserMessages(channelId, message) {
   if (links.length > 0 && isSuspicious) {
     // If first time spamming in this channel
     if (!user.channels[channelId]) user.channels[channelId] = [];
-    user.channels[channelId].push(Date.now());
-    user.recentMessageCount++;
+      user.channels[channelId].push(Date.now());
+      user.recentSusMessageCount++;
     // Debug dataStore
     console.log(util.inspect(dataStore, { depth: null, colors: true }));
   }
@@ -595,45 +603,60 @@ async function sendBotOfflineMessage() {
 async function pruneMessages(message) {
   // Extract the number of messages to prune
   const args = message.content.split(' ');
-  const numMessages = parseInt(args[1]);
+  let numMessages = parseInt(args[1]);
 
   // Validate the number of messages
-  if (isNaN(numMessages) || numMessages < 1 || numMessages > 50) {
-    message.reply('Please specify a number between 1 and 50.');
-    return;
-  }
-
-  // Confirm the prune operation
-  let confirmationMessage;
-  try {
-    confirmationMessage = await message.channel.send(
+  if (isNaN(numMessages)) {
+    message.reply('Alright since you didn\'t specify a number, I\'ll just prune the last message.\nType `confirm` to proceed.');
+    numMessages = 1;
+  } else if (numMessages < 1 || numMessages > 50) {
+    message.reply('Please specify a number between 1 and 50 and try again.');
+  } else {
+    await sendMessage(
+      message.channel,
       `Are you sure you want to prune the last ${numMessages} messages? Type \`confirm\` to proceed.`
     );
-  } catch (error) {
-    console.log(`Error Sending Prune Confirmation Message: ${error}`);
   }
 
+  
   // Wait for confirmation from the user
   const filter = m => m.author.id === message.author.id && m.content.toLowerCase() === 'confirm';
+  let confMsg;
+  let didBulkDelete = false;
   try {
-    message.channel.awaitMessages({ filter, max: 1, time: 5 * 1000, errors: ['time'] })
-      .then(async collected => {
-        // Prune the messages
-        const messages = await message.channel.messages.fetch({ limit: numMessages + 2 });
-        message.channel.bulkDelete(messages.size);
-        const reply = message.reply(`Successfully pruned the last ${numMessages} messages.`);
-        confirmationMessage.delete();
-        // Delete the reply confirming the deletion after 5 seconds
-        setTimeout(() => {
-          reply.delete();
-        }, 5000);
-      })
-      .catch(() => {
-        message.reply('Confirmation timed out. Operation canceled.');
-        confirmationMessage.delete();
-      });
-  } catch (e) {
-    console.log(`Error Bulk Deleting Messages: ${e}`);
+    // Wait 7 seconds for a response, otherwise cancel the bulk delete
+    await message.channel.awaitMessages({ filter, max: 1, time: 7 * 1000, errors: ['time'] })
+    .then(async collected => {
+      // Prune the messages
+      const messages = await message.channel.messages.fetch({ limit: numMessages + 3 });
+      await message.channel.bulkDelete(messages.size);
+      didBulkDelete = true;
+    })
+    .catch(() => {
+      message.reply('Confirmation timed out. Operation canceled.');
+    });
+  } catch (error) {
+    console.log(`Error Bulk Deleting Messages: ${error}`);
+  }
+  
+  if (!didBulkDelete) return;
+
+  try {
+    if (numMessages === 1) {
+      confMsg = await message.channel.send(`✅ Successfully pruned the last message ✂`);
+    } else {
+      confMsg = await message.channel.send(`✅ Successfully pruned the last ${numMessages} messages ✂`);
+    }
+  } catch (error) {
+    console.log(`Error Sending Prune ConfirmationV2 Message: ${error}`);
+    confMsg = false;
+  }
+
+  // Delete the 2nd confirmation message after 5 seconds
+  if (confMsg) {
+    setTimeout(() => {
+      confMsg.delete().catch(error => console.error('Error deleting confirmation message:', error));
+    }, 5000);
   }
 }
 
