@@ -91,7 +91,10 @@ client.on('guildMemberAdd', async (member) => {
   }
 
   const message: string = welcomeMessages[messageIndex];
-  const welcomeMessage: string = `${message}`.replace('{member}', `<@${member.id}>`).replace('{archive}', `<#${archiveChannel}>`).replace('{Froge}', `<:Froge:930083494938411018>`);
+  const welcomeMessage: string = `${message}`
+    .replace('{member}', `<@${member.id}>`)
+    .replace('{archive}', `<#${archiveChannel}>`)
+    .replace('{Froge}', `<:Froge:930083494938411018>`);
   await sendMessage(member.guild.systemChannel, welcomeMessage);
 
   dataStore.lastMessageIndex = messageIndex;
