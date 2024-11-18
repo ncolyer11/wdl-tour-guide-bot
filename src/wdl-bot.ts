@@ -21,35 +21,46 @@ const util = require('util');
 const HOURLY_MSG_LIMIT = 10;
 const HOURLY_INDV_REPLY_LIMIT = 3;
 const CHANNEL_COOLDOWN = 20000;
+const APPROX_DISCORD_CHAR_LIMIT = 1900;
 const SPAM_MESSAGE_LIMIT = 4;
 const MAXRETRIES = 5;
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
 const mathsAndCodeChannelId = '1036212683374088283'
+const chunkManipulationChannelId = '930048455777325076';
 
 interface UserReplyData {
   username: string;
   replyCount: number;
 }
 
-interface User {
+export interface User {
   name: string;
   userId: string;
+  roles: string[];
+  timeJoined: number;
+  totalMessageCount: number;
+  recentSusMessageCount: number; // Number of messages sent in the last 20 or so seconds
   channels: {
     [channelId: string]: number[];
   };
-  messageCount: number;
 }
 
-interface DataStore {
+// Cooldown metrics
+interface cdMetrics {
   botMessageCount: number;
   botLimitReached: boolean;
   currentHour: number;
   lastPaperMsgTimestamp: number;
   lastMessageIndex: number | undefined;
+}
+
+interface DataStore {
+  cdMetrics: cdMetrics;
   latestStemlightReleaseTag: string;
-  userReplyData: UserReplyData[];
+  backedUp: boolean;
   users: User[];
+  userReplyData: UserReplyData[];
 }
 
 let dataStore: DataStore;
@@ -63,24 +74,37 @@ setInterval(updateHourlyLimit, 1000 * 60 * 60);
 client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
-  dataStore = await loadDatabase();
+  await loadDatabase();
   setInterval(saveDatabase, 1000 * 60 * 15); // Save every 15 minutes
 });
 
 // Event handler for when the bot is closed using Ctrl + C
 process.on('SIGINT', async () => {
   await saveDatabase(); // Ensure the database is saved before closing
+  await backupDatabase();
   await sendBotOfflineMessage();
   console.log('Bot is closing...');
   process.exit(0);
 });
 
 client.on('guildMemberAdd', async (member) => {
+  let user: User = {
+    name: member.user.username,
+    userId: member.id,
+    roles: member.roles.cache.map(role => role.name), // ensure it's an array of strings
+    timeJoined: Date.now(),
+    totalMessageCount: 0,
+    recentSusMessageCount: 0,
+    channels: {},
+  };
+  dataStore.users.push(user);
+
   // Define an array of integers representing the relative rarities of each welcome message
-  const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6, 7, 3, 4, 6, 5];
+  const messageRarities = [7, 3, 3, 3, 1, 2, 3, 4, 4, 4, 3, 3, 6, 3, 1, 4, 2, 7, 7, 5, 2, 6,
+                           7, 3, 4, 6, 5];
 
   let messageIndex: number = weightedRandomIndex(messageRarities);
-  let lastMessageIndex = dataStore.lastMessageIndex;
+  let lastMessageIndex = dataStore.cdMetrics.lastMessageIndex;
   if (typeof lastMessageIndex === 'undefined') {
     lastMessageIndex = messageIndex;
   }
@@ -97,7 +121,7 @@ client.on('guildMemberAdd', async (member) => {
     .replace('{Froge}', `<:Froge:930083494938411018>`);
   await sendMessage(member.guild.systemChannel, welcomeMessage);
 
-  dataStore.lastMessageIndex = messageIndex;
+  dataStore.cdMetrics.lastMessageIndex = messageIndex;
   console.log(`Sent welcome message to ${member.user.tag}`);
 
   await dmUser(member);
@@ -124,12 +148,16 @@ client.on('messageDelete', async (message) => {
   const testingChannel = message.guild.channels.cache.get(testingChannelId);
   if (testingChannel) {
     // If any mention found, replace them with text to avoid ping
-    const sanitizedContent = message.content.replace(/@everyone/g, '`@everyone`').replace(/@here/g, '`@here`');
-    console.log(message)
-    if (message.content.length < 1900) {
+    const sanitizedContent = message.content
+      .replace(/@everyone/g, '`@everyone`')
+      .replace(/@here/g, '`@here`');
+
+    if (message.content.length < APPROX_DISCORD_CHAR_LIMIT) {
       await sendMessage(
         testingChannel,
+        
         `**Deleted Message:** \n- User: *${message.author.username}*\n- Channel: ${message.channel}\n- Message: "${sanitizedContent}"`
+      
       );
     }
     console.log('Message deleted');
@@ -137,119 +165,70 @@ client.on('messageDelete', async (message) => {
 });
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return; // Check if the author is a bot
-  updateHourlyLimit();
+  // Runs owner-specific commands prefixed with '!'
+  const isOwner: boolean = await runIfOwnerCommand(message);
 
-  // Server owner commands
-  if (message.member.roles.cache.some(role => role.name === 'slightly different shade of cyan')) {
-    if (message.content.startsWith('!prune')) {
-      pruneMessages(message);
-    } else if (message.content.startsWith('!data')) {
-      console.log(util.inspect(dataStore, { depth: null, colors: true }));
-      saveDatabase();
-      message.reply('Server data saved and printed to console.');
-    } else if (message.content.startsWith('!backup')) {
-      const backedUp = await backupDatabase();
-      if (backedUp) {
-        message.reply('Server data successfully backed up.');
-      } else {
-        message.reply('Error backing up server data.');
-      }
-    }
-  }
-
-  const chunkManipulationChannelId = '930048455777325076';
-  if (message.channel.id === chunkManipulationChannelId) {
-    message.delete().catch(error => console.error('Error deleting message:', error));
-    console.log("Kept #chunk-manipulation clean")
-  }
-
-  checkBan(message);
-  let botMessageCount = dataStore.botMessageCount;
-  if (await canSendMessage(message, true)) {
-    if (triggerPhrases.some(phrase => message.content
-                              .toLowerCase()
-                              .replace(/['",.\-`()]/g, '')
-                              .includes(phrase)
-      )) {
-      await sendMessage(
-        message.channel,
-        `Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`
-      );
-      console.log(`Sent message ${botMessageCount} in response to "world download"`);
-      incrementUserReplyCount(message.author.username);
-      botMessageCount++;
-    } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
-    && !excPhrases.some(
-      phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
-      await sendMessage(
-        message.channel,
-        `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
-      );
-        console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
-        incrementUserReplyCount(message.author.username);
-        botMessageCount++;
-      }
-    }
-    
-  if (await canSendMessage(message, false)) {
-    if (message.content.toLowerCase().includes('paper')) {
+  // Prevent messages in this channel fsr
+  cleanChunkManipulation(message, isOwner);
   
-      const now = Date.now();
-      if (now - dataStore.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
-        // Randomly decide the timestamp
-        const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
-        await sendMessage(
-          message.channel,
-          `[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`
-        );
-        console.log('Sent message in response to paper devs being tarts');
-        incrementUserReplyCount(message.author.username);
-        botMessageCount++;
-        dataStore.lastPaperMsgTimestamp = now; // update the last message timestamp
-      }
-    }
-  }
+  // Return if the author a bot to not self-reply or reply to other bots
+  if (message.author.bot) return;
+  
+  // Check for spam and ban user if required
+  const didBan: boolean = await checkBan(message);
+
+  // Skip if the user was banned when responding to commonly asked questions
+  if (!didBan) checkUserMessageForResponse(message, isOwner);
 });
 
 // Periodically check for new Stemlight releases
-client.once('ready', () => {
+client.once('ready', async () => {
+  // Delay to give the bot time to start up
+  await new Promise(res => setTimeout(res, 5000));
   console.log('Checking for new releases...');
-  setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 5 minutes (in milliseconds)
+  if (await checkForNewRelease()) {
+    console.log(`New release found: ${dataStore.latestStemlightReleaseTag}`);
+  } else {
+    console.log('No new releases found.');
+  }
+  setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 15 minutes (in milliseconds)
 });
 
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////// Functions /////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-async function loadDatabase(): Promise<DataStore> {
+function cleanChunkManipulation(message, isOwner): void {
+  if (message.channel.id === chunkManipulationChannelId && !isOwner) {
+    message.delete().catch(error => console.error('Error deleting message:', error));
+    console.log("Kept #chunk-manipulation clean")
+  }
+}
+
+async function loadDatabase(): Promise<void> {
   const databaseFilePath = path.join(__dirname, 'database.json');
   try {
     const data = fs.readFileSync(databaseFilePath, 'utf8');
+    dataStore =  JSON.parse(data);
     console.log('Database loaded successfully');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error loading database:', error);
+  } catch (error: any) {
+    console.error('Error loading database:', error.message.substring(0, 100));
     // If can't load from file :/ try loading from backup :?
+    console.log('Attempting to load from backup...');
     const backedUpData: DataStore | false = await loadFromBackup();
     if (backedUpData) {
-      return backedUpData;
+      dataStore =  backedUpData;
+      console.log('Loaded from backup successfully');
     // If even the backup fails :[ start fresh :(((
     } else {
-      return {
-        botMessageCount: 0,
-        botLimitReached: false,
-        currentHour: new Date().getHours(),
-        lastPaperMsgTimestamp: 0,
-        lastMessageIndex: undefined,
-        latestStemlightReleaseTag: '',
-        userReplyData: [],
-        users: []
-      };
+      dataStore =  getDefaultDataStore();
+      console.log('Starting a fresh database');
     }
   }
 }
 
 async function saveDatabase(): Promise<void> {
+  // If an hour has passed, reset the bot's cooldown metrics and update the current hour
+  updateHourlyLimit();
   const databaseFilePath = path.join(__dirname, 'database.json');
   try {
     fs.writeFileSync(databaseFilePath, JSON.stringify(dataStore, null, 2), 'utf8');
@@ -258,9 +237,13 @@ async function saveDatabase(): Promise<void> {
     console.error('Error saving database:', error);
   }
 
-  // Backup the database every 12 hours
+  // Backup the database every 12 hours if it hasn't been backed up yet
   const currentHour = new Date().getHours();
-  if (currentHour % 12 === 0) await backupDatabase();
+  if (currentHour % 12 === 0 && !dataStore.backedUp) {
+    await backupDatabase();
+  } else if (currentHour % 12 !== 0) {
+    dataStore.backedUp = false;
+  }
 }
 
 // Backup the database to a separate file for redundancy
@@ -270,9 +253,11 @@ async function backupDatabase(): Promise<boolean> {
     await saveDatabase();
     fs.copyFileSync(path.join(__dirname, 'database.json'), backupFilePath);
     console.log('Database backed up successfully');
+    dataStore.backedUp = true;
     return true;
   } catch (error) {
     console.error('Error backing up database:', error);
+    dataStore.backedUp = false;
     return false;
   }
 }
@@ -283,11 +268,29 @@ async function loadFromBackup(): Promise<DataStore | false> {
     const data = fs.readFileSync(backupFilePath, 'utf8');
     console.log('Backup loaded successfully');
     dataStore = JSON.parse(data);
+    // Retstore datastore to backup
+    await saveDatabase();
     return dataStore;
-  } catch (error) {
-    console.error('Error loading backup:', error);
+  } catch (error: any) {
+    console.error('Error loading backup:', error.message.substring(0, 100));
     return false;
   }
+}
+
+function getDefaultDataStore(): DataStore {
+  return {
+      cdMetrics: {
+          botMessageCount: 0,
+          botLimitReached: false,
+          currentHour: new Date().getHours(),
+          lastPaperMsgTimestamp: 0,
+          lastMessageIndex: undefined
+      },
+      latestStemlightReleaseTag: '',
+      backedUp: false,
+      userReplyData: [],
+      users: []
+  };
 }
 
 function weightedRandomIndex(weights): number {
@@ -300,6 +303,88 @@ function weightedRandomIndex(weights): number {
     }
   }
   return 0;
+}
+
+// Checks a user's message for trigger phrases and responds accordingly
+async function checkUserMessageForResponse(message, isOwner): Promise<void> {
+  let botMessageCount = dataStore.cdMetrics.botMessageCount;
+  // Only check for trigger phrases in the specified channels
+  let channelRestrict: boolean = true;
+  let botReplied: boolean = false;
+  if (isOwner || await canSendMessage(message, channelRestrict)) {
+    if (triggerPhrases.some(phrase => message.content
+        .toLowerCase()
+        .replace(/['",.\-`()]/g, '')
+        .includes(phrase)
+      )) {
+      message.channel.send(`Hey ${message.author}, please see <#${archiveChannel}> for all world downloads and schematics.`);
+      console.log(`Sent message ${botMessageCount} in response to "world download"`);
+      incrementUserReplyCount(message.author.username);
+      botMessageCount++;
+      botReplied = true;
+
+    } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
+        && !excPhrases.some(phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
+      message.channel.send(
+        `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
+      );
+      console.log(`Sent message ${botMessageCount} in response to "tree farm"`);
+      incrementUserReplyCount(message.author.username);
+      botMessageCount++;
+      botReplied = true;
+    }
+  }
+  
+  channelRestrict = false;
+  if (!botReplied && (isOwner || await canSendMessage(message, channelRestrict))) {
+    if (message.content.toLowerCase().includes('paper')) {
+      console.log("Paper devs being tarts");
+      const now = Date.now();
+      if (now - dataStore.cdMetrics.lastPaperMsgTimestamp >= 60 * 1000) { // 1 minute cooldown
+        // Randomly decide the timestamp
+        const timestamp = Math.random() < 0.1 ? 14 : 1128; // 1 in 10 chance for 14, 9 in 10 chance for 1128
+  
+        message.channel.send(`[paper lol](<https://youtube.com/watch?v=XjjXYrMK4qw&t=${timestamp}s>)`);
+        console.log('Sent message in response to paper devs being tarts');
+        incrementUserReplyCount(message.author.username);
+        botMessageCount++;
+        botReplied = true;
+        dataStore.cdMetrics.lastPaperMsgTimestamp = now; // update the last message timestamp
+      }
+    }
+  }
+
+  dataStore.cdMetrics.botMessageCount = botMessageCount;
+}
+
+async function runIfOwnerCommand(message): Promise<boolean> {
+  const hasOwnerRole = message.member.roles.cache.some(
+    role => role.name === 'slightly different shade of cyan'
+  );
+  // Return false if not owner
+  if (!(hasOwnerRole || message.author.username === 'ncolyer')) {
+    return false;
+  }
+  const msg = message.content;
+  if (msg.startsWith('!prune')) {
+    pruneMessages(message);
+  } else if (message.content.startsWith('!data')) {
+    console.log(util.inspect(dataStore, { depth: null, colors: true }));
+    saveDatabase();
+    message.reply('Server data saved and printed to console.');
+  } else if (message.content.startsWith('!backup')) {
+    const backedUp = await backupDatabase();
+    if (backedUp) {
+      message.reply('Server data successfully backed up.');
+    } else {
+      message.reply('Error backing up server data.');
+    }
+  } else if (message.content.startsWith('!reload')) {
+    await loadDatabase();
+    message.reply('Server data reloaded.');
+  }
+
+  return true;
 }
 
 async function dmUser(member): Promise<void> {
@@ -330,10 +415,11 @@ async function sendMessage(channel, content): Promise<boolean> {
 
 async function canSendMessage(message, channelRestrict) {
   // Check if the message count has reached the limit
-  if (dataStore.botMessageCount >= HOURLY_MSG_LIMIT) {
-    if (!dataStore.botLimitReached) {
-      console.log(`Reached message limit at message count: ${dataStore.botMessageCount}`);
-      dataStore.botLimitReached = true;
+
+  if (dataStore.cdMetrics.botMessageCount >= HOURLY_MSG_LIMIT) {
+    if (!dataStore.cdMetrics.botLimitReached) {
+      console.log(`Reached message limit at message count: ${dataStore.cdMetrics.botMessageCount}`);
+      dataStore.cdMetrics.botLimitReached = true;
     }
     return false;
   }
@@ -371,36 +457,56 @@ async function canSendMessage(message, channelRestrict) {
 // Reset message count and update current hour
 function updateHourlyLimit() {
   const newHour = new Date().getHours();
-  if (newHour !== dataStore.currentHour) {
-    dataStore.currentHour = newHour;
-    dataStore.botMessageCount = 0;
+  if (newHour !== dataStore.cdMetrics.currentHour) {
+    dataStore.cdMetrics.currentHour = newHour;
+    dataStore.cdMetrics.botMessageCount = 0;
     dataStore.userReplyData = [];
-    dataStore.botLimitReached = false;
+    dataStore.cdMetrics.botLimitReached = false;
   }
 }
 
 ////////////////////////////////////////
 ////////// BAN USER FUNCTIONS //////////
 ////////////////////////////////////////
-async function checkBan(message) {
+async function checkBan(message): Promise<boolean> {
   const { author, guild, channel } = message;
-  let users = dataStore.users;
-  updateUserMessages(users, author.id, channel.id, message);
+  updateUserMessages(channel.id, message);
   
-  const user = users.find(user => user.userId === author.id);
+  const user = dataStore.users.find(user => user.userId === author.id);
   // Check for ban conditions
-  if (user && user.messageCount >= SPAM_MESSAGE_LIMIT){
+  if (user && user.recentSusMessageCount >= SPAM_MESSAGE_LIMIT){
     await banUser(guild, author, channel, message.content);
-    return;
   }
+
+  return false;
 }
 
 // Function to update user's message timestamps
-function updateUserMessages(users, userId, channelId, message) {
-  let user = users.find(user => user.userId === userId);
-  const links = linkify.find(message.content);
+function updateUserMessages(channelId, message) {
   const { author } = message;
+  const userId = author.id;
+  let roles = message.member.roles.cache
+  // Convert list of role objects to list of role names
+  roles = roles.map(role => role.name);
+  let user: User | undefined = dataStore.users.find(user => user.userId === userId);
   
+  // In case somehow the userId changed since the user was added to dataStore
+  if (!user) {
+    user = {
+      name: author.username,
+      userId,
+      roles,
+      timeJoined: Date.now(),
+      totalMessageCount: 0,
+      recentSusMessageCount: 0,
+      channels: {},
+    };
+    dataStore.users.push(user);
+  }
+
+  user.totalMessageCount++; // Increment total message count
+  
+  const links = linkify.find(message.content);
   // Update user's message timestamps
   const keywords = [
     '@everyone', '@here', 'steam', 'discord', 'discord nitro', 'free nitro', 'free gift',
@@ -408,15 +514,6 @@ function updateUserMessages(users, userId, channelId, message) {
   ];
   const isSuspicious = keywords.some(keyword => message.content.includes(keyword));
   
-  if (!user) {
-    user = {
-      name: author.username,
-      userId,
-      channels: {},
-      messageCount: 0
-    };
-    users.push(user);
-  }
     
   // Remove timestamps older than CHANNEL_COOLDOWN
   for (channelId in user.channels) {
@@ -425,7 +522,7 @@ function updateUserMessages(users, userId, channelId, message) {
         time => Date.now() - time < CHANNEL_COOLDOWN
       );
 
-      user.messageCount -= (user.channels[channelId].length - freshMessages.length);
+      user.recentSusMessageCount -= (user.channels[channelId].length - freshMessages.length);
       user.channels[channelId] = freshMessages;
     }
   }
@@ -433,8 +530,8 @@ function updateUserMessages(users, userId, channelId, message) {
   if (links.length > 0 && isSuspicious) {
     // If first time spamming in this channel
     if (!user.channels[channelId]) user.channels[channelId] = [];
-    user.channels[channelId].push(Date.now());
-    user.messageCount++;
+      user.channels[channelId].push(Date.now());
+      user.recentSusMessageCount++;
     // Debug dataStore
     console.log(util.inspect(dataStore, { depth: null, colors: true }));
   }
@@ -506,46 +603,65 @@ async function sendBotOfflineMessage() {
 async function pruneMessages(message) {
   // Extract the number of messages to prune
   const args = message.content.split(' ');
-  const numMessages = parseInt(args[1]);
+  let numMessages = parseInt(args[1]);
 
   // Validate the number of messages
-  if (isNaN(numMessages) || numMessages < 1 || numMessages > 50) {
-    message.reply('Please specify a number between 1 and 50.');
-    return;
-  }
-
-  // Confirm the prune operation
-  let confirmationMessage;
-  try {
-    confirmationMessage = await message.channel.send(
+  if (isNaN(numMessages)) {
+    message.reply('Alright since you didn\'t specify a number, I\'ll just prune the last message.\nType `confirm` to proceed.');
+    numMessages = 1;
+  } else if (numMessages < 1 || numMessages > 50) {
+    message.reply('Please specify a number between 1 and 50 and try again.');
+  } else {
+    await sendMessage(
+      message.channel,
       `Are you sure you want to prune the last ${numMessages} messages? Type \`confirm\` to proceed.`
     );
-  } catch (error) {
-    console.log(`Error Sending Prune Confirmation Message: ${error}`);
   }
 
+  
   // Wait for confirmation from the user
   const filter = m => m.author.id === message.author.id && m.content.toLowerCase() === 'confirm';
+  let confMsg;
+  let didBulkDelete = false;
   try {
-    message.channel.awaitMessages({ filter, max: 1, time: 5 * 1000, errors: ['time'] })
-      .then(async collected => {
-        // Prune the messages
-        const messages = await message.channel.messages.fetch({ limit: numMessages + 2 });
-        message.channel.bulkDelete(messages.size);
-        message.reply(`Successfully pruned the last ${numMessages} messages.`);
-        confirmationMessage.delete();
-      })
-      .catch(() => {
-        message.reply('Confirmation timed out. Operation canceled.');
-        confirmationMessage.delete();
-      });
-  } catch (e) {
-    console.log(`Error Bulk Deleting Messages: ${e}`);
+    // Wait 7 seconds for a response, otherwise cancel the bulk delete
+    await message.channel.awaitMessages({ filter, max: 1, time: 7 * 1000, errors: ['time'] })
+    .then(async collected => {
+      // Prune the messages
+      const messages = await message.channel.messages.fetch({ limit: numMessages + 3 });
+      await message.channel.bulkDelete(messages.size);
+      didBulkDelete = true;
+    })
+    .catch(() => {
+      message.reply('Confirmation timed out. Operation canceled.');
+    });
+  } catch (error) {
+    console.log(`Error Bulk Deleting Messages: ${error}`);
+  }
+  
+  if (!didBulkDelete) return;
+
+  try {
+    if (numMessages === 1) {
+      confMsg = await message.channel.send(`✅ Successfully pruned the last message ✂`);
+    } else {
+      confMsg = await message.channel.send(`✅ Successfully pruned the last ${numMessages} messages ✂`);
+    }
+  } catch (error) {
+    console.log(`Error Sending Prune ConfirmationV2 Message: ${error}`);
+    confMsg = false;
+  }
+
+  // Delete the 2nd confirmation message after 5 seconds
+  if (confMsg) {
+    setTimeout(() => {
+      confMsg.delete().catch(error => console.error('Error deleting confirmation message:', error));
+    }, 5000);
   }
 }
 
 // Check for new releases of Stemlight and post them to #maths-and-code
-async function checkForNewRelease() {
+async function checkForNewRelease(): Promise<boolean> {
   const retryDelay = 5000; // Initial retry delay (5 seconds)
 
   for (let attempt = 1; attempt <= MAXRETRIES; attempt++) {
@@ -602,9 +718,9 @@ async function checkForNewRelease() {
           await sendMessage(channel, { embeds });
         }
         updateLastReleaseTag(data.tag_name);
+        return true;
       }
 
-      return; // Success, exit the function
     } catch (error) {
       const err = error as Error;
       console.error(`Attempt ${attempt} failed: ${err.message}`);
@@ -617,6 +733,8 @@ async function checkForNewRelease() {
       }
     }
   }
+
+  return false;
 }
 
 // Retrieve the last known release tag from a file
