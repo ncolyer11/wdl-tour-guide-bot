@@ -4,3 +4,4 @@ src/PAT.txt
 .vscode/
 src/hfh-bot.js
 src/database.json
+src/database_backup.json
