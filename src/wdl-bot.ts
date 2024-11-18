@@ -37,7 +37,7 @@ interface UserReplyData {
 export interface User {
   name: string;
   userId: string;
-  role: string;
+  roles: string[];
   timeJoined: number;
   totalMessageCount: number;
   recentMessageCount: number; // Number of messages sent in the last 20 or so seconds
@@ -56,10 +56,11 @@ interface cdMetrics {
 }
 
 interface DataStore {
-  userReplyData: UserReplyData[];
-  users: User[];
   cdMetrics: cdMetrics;
   latestStemlightReleaseTag: string;
+  backedUp: boolean;
+  users: User[];
+  userReplyData: UserReplyData[];
 }
 
 let dataStore: DataStore;
@@ -73,13 +74,14 @@ setInterval(updateHourlyLimit, 1000 * 60 * 60);
 client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
-  dataStore = await loadDatabase();
+  await loadDatabase();
   setInterval(saveDatabase, 1000 * 60 * 15); // Save every 15 minutes
 });
 
 // Event handler for when the bot is closed using Ctrl + C
 process.on('SIGINT', async () => {
   await saveDatabase(); // Ensure the database is saved before closing
+  await backupDatabase();
   await sendBotOfflineMessage();
   console.log('Bot is closing...');
   process.exit(0);
@@ -89,7 +91,7 @@ client.on('guildMemberAdd', async (member) => {
   let user: User = {
     name: member.user.username,
     userId: member.id,
-    role: member.roles.highest.name,
+    roles: member.roles.cache.map(role => role.name), // ensure it's an array of strings
     timeJoined: Date.now(),
     totalMessageCount: 0,
     recentMessageCount: 0,
@@ -149,7 +151,6 @@ client.on('messageDelete', async (message) => {
     const sanitizedContent = message.content
       .replace(/@everyone/g, '`@everyone`')
       .replace(/@here/g, '`@here`');
-    console.log(message)
 
     if (message.content.length < APPROX_DISCORD_CHAR_LIMIT) {
       await sendMessage(
@@ -164,68 +165,71 @@ client.on('messageDelete', async (message) => {
 });
 
 client.on('messageCreate', async (message) => {
-  // Return if the author is a bot to not self-reply or reply to other bots
-  if (message.author.bot) return;
-
-  // If an hour has passed, reset the bot's cooldown metrics and update the current hour
-  updateHourlyLimit();
-
-  // Runs owner-specific prefixed with '!'
+  // Runs owner-specific commands prefixed with '!'
   const isOwner: boolean = await runIfOwnerCommand(message);
 
   // Prevent messages in this channel fsr
-  if (message.channel.id === chunkManipulationChannelId && !isOwner) {
-    message.delete().catch(error => console.error('Error deleting message:', error));
-    console.log("Kept #chunk-manipulation clean")
-  }
-
+  cleanChunkManipulation(message, isOwner);
+  
+  // Return if the author is a bot to not self-reply or reply to other bots
+  if (message.author.bot) return;
+  
   // Check for spam and ban user if required
-  checkBan(message);
+  const didBan: boolean = await checkBan(message);
 
-  // Don't reply to the owner when responding to commonly asked questions
-  if (!isOwner) checkUserMessageForResponse(message);
+  // Skip if the user was banned or is the owner, when responding to commonly asked questions
+  // if (!isOwner && !didBan) checkUserMessageForResponse(message);
+  if (!didBan) checkUserMessageForResponse(message);
 });
 
 // Periodically check for new Stemlight releases
-client.once('ready', () => {
+client.once('ready', async () => {
+  // Delay to give the bot time to start up
+  await new Promise(res => setTimeout(res, 5000));
   console.log('Checking for new releases...');
+  if (await checkForNewRelease()) {
+    console.log(`New release found: ${dataStore.latestStemlightReleaseTag}`);
+  } else {
+    console.log('No new releases found.');
+  }
   setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 15 minutes (in milliseconds)
 });
 
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////// Functions /////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-async function loadDatabase(): Promise<DataStore> {
+function cleanChunkManipulation(message, isOwner): void {
+  if (message.channel.id === chunkManipulationChannelId && !isOwner) {
+    message.delete().catch(error => console.error('Error deleting message:', error));
+    console.log("Kept #chunk-manipulation clean")
+  }
+}
+
+async function loadDatabase(): Promise<void> {
   const databaseFilePath = path.join(__dirname, 'database.json');
   try {
     const data = fs.readFileSync(databaseFilePath, 'utf8');
+    dataStore =  JSON.parse(data);
     console.log('Database loaded successfully');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error loading database:', error);
+  } catch (error: any) {
+    console.error('Error loading database:', error.message.substring(0, 100));
     // If can't load from file :/ try loading from backup :?
+    console.log('Attempting to load from backup...');
     const backedUpData: DataStore | false = await loadFromBackup();
     if (backedUpData) {
-      return backedUpData;
+      dataStore =  backedUpData;
+      console.log('Loaded from backup successfully');
     // If even the backup fails :[ start fresh :(((
     } else {
-      return {
-        cdMetrics: {
-          botMessageCount: 0,
-          botLimitReached: false,
-          currentHour: new Date().getHours(),
-          lastPaperMsgTimestamp: 0,
-          lastMessageIndex: undefined
-        },
-        latestStemlightReleaseTag: '',
-        userReplyData: [],
-        users: []
-      };
+      dataStore =  getDefaultDataStore();
+      console.log('Starting a fresh database');
     }
   }
 }
 
 async function saveDatabase(): Promise<void> {
+  // If an hour has passed, reset the bot's cooldown metrics and update the current hour
+  updateHourlyLimit();
   const databaseFilePath = path.join(__dirname, 'database.json');
   try {
     fs.writeFileSync(databaseFilePath, JSON.stringify(dataStore, null, 2), 'utf8');
@@ -234,9 +238,13 @@ async function saveDatabase(): Promise<void> {
     console.error('Error saving database:', error);
   }
 
-  // Backup the database every 12 hours
+  // Backup the database every 12 hours if it hasn't been backed up yet
   const currentHour = new Date().getHours();
-  if (currentHour % 12 === 0) await backupDatabase();
+  if (currentHour % 12 === 0 && !dataStore.backedUp) {
+    await backupDatabase();
+  } else if (currentHour % 12 !== 0) {
+    dataStore.backedUp = false;
+  }
 }
 
 // Backup the database to a separate file for redundancy
@@ -246,9 +254,11 @@ async function backupDatabase(): Promise<boolean> {
     await saveDatabase();
     fs.copyFileSync(path.join(__dirname, 'database.json'), backupFilePath);
     console.log('Database backed up successfully');
+    dataStore.backedUp = true;
     return true;
   } catch (error) {
     console.error('Error backing up database:', error);
+    dataStore.backedUp = false;
     return false;
   }
 }
@@ -259,11 +269,29 @@ async function loadFromBackup(): Promise<DataStore | false> {
     const data = fs.readFileSync(backupFilePath, 'utf8');
     console.log('Backup loaded successfully');
     dataStore = JSON.parse(data);
+    // Retstore datastore to backup
+    await saveDatabase();
     return dataStore;
-  } catch (error) {
-    console.error('Error loading backup:', error);
+  } catch (error: any) {
+    console.error('Error loading backup:', error.message.substring(0, 100));
     return false;
   }
+}
+
+function getDefaultDataStore(): DataStore {
+  return {
+      cdMetrics: {
+          botMessageCount: 0,
+          botLimitReached: false,
+          currentHour: new Date().getHours(),
+          lastPaperMsgTimestamp: 0,
+          lastMessageIndex: undefined
+      },
+      latestStemlightReleaseTag: '',
+      backedUp: false,
+      userReplyData: [],
+      users: []
+  };
 }
 
 function weightedRandomIndex(weights): number {
@@ -293,9 +321,8 @@ async function checkUserMessageForResponse(message): Promise<void> {
       console.log(`Sent message ${botMessageCount} in response to "world download"`);
       incrementUserReplyCount(message.author.username);
       botMessageCount++;
-    }
-    
-    if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
+
+    } else if (otherPhrases.some(phrase => message.content.toLowerCase().includes(phrase))
         && !excPhrases.some(phrase => new RegExp('\\b' + phrase + '\\b', 'i').test(message.content))) {
       message.channel.send(
         `Hey ${message.author}, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
@@ -431,41 +458,44 @@ function updateHourlyLimit() {
 ////////////////////////////////////////
 ////////// BAN USER FUNCTIONS //////////
 ////////////////////////////////////////
-async function checkBan(message) {
+async function checkBan(message): Promise<boolean> {
   const { author, guild, channel } = message;
-  let users = dataStore.users;
-  updateUserMessages(users, channel.id, message);
+  updateUserMessages(channel.id, message);
   
-  const user = users.find(user => user.userId === author.id);
+  const user = dataStore.users.find(user => user.userId === author.id);
   // Check for ban conditions
   if (user && user.recentMessageCount >= SPAM_MESSAGE_LIMIT){
     await banUser(guild, author, channel, message.content);
-    return;
+    return true;
   }
+
+  return false;
 }
 
 // Function to update user's message timestamps
-function updateUserMessages(users, channelId, message) {
+function updateUserMessages(channelId, message) {
   const { author } = message;
   const userId = author.id;
-  const role = author.roles.highest.name;
-  let user = users.find(user => user.userId === userId);
+  let roles = message.member.roles.cache
+  // Convert list of role objects to list of role names
+  roles = roles.map(role => role.name);
+  let user: User | undefined = dataStore.users.find(user => user.userId === userId);
   
   // In case somehow the userId changed since the user was added to dataStore
   if (!user) {
     user = {
       name: author.username,
       userId,
-      role,
+      roles,
       timeJoined: Date.now(),
       totalMessageCount: 0,
       recentMessageCount: 0,
       channels: {},
     };
-    users.push(user);
+    dataStore.users.push(user);
   }
 
-  user.latestMessageTimestamp = Date.now(); // Update latest message timestamp
+  user.recentMessageCount++;
   user.totalMessageCount++; // Increment total message count
   
   const links = linkify.find(message.content);
@@ -591,8 +621,12 @@ async function pruneMessages(message) {
         // Prune the messages
         const messages = await message.channel.messages.fetch({ limit: numMessages + 2 });
         message.channel.bulkDelete(messages.size);
-        message.reply(`Successfully pruned the last ${numMessages} messages.`);
+        const reply = message.reply(`Successfully pruned the last ${numMessages} messages.`);
         confirmationMessage.delete();
+        // Delete the reply confirming the deletion after 5 seconds
+        setTimeout(() => {
+          reply.delete();
+        }, 5000);
       })
       .catch(() => {
         message.reply('Confirmation timed out. Operation canceled.');
@@ -604,7 +638,7 @@ async function pruneMessages(message) {
 }
 
 // Check for new releases of Stemlight and post them to #maths-and-code
-async function checkForNewRelease() {
+async function checkForNewRelease(): Promise<boolean> {
   const retryDelay = 5000; // Initial retry delay (5 seconds)
 
   for (let attempt = 1; attempt <= MAXRETRIES; attempt++) {
@@ -661,9 +695,9 @@ async function checkForNewRelease() {
           await sendMessage(channel, { embeds });
         }
         updateLastReleaseTag(data.tag_name);
+        return true;
       }
 
-      return; // Success, exit the function
     } catch (error) {
       const err = error as Error;
       console.error(`Attempt ${attempt} failed: ${err.message}`);
@@ -676,6 +710,8 @@ async function checkForNewRelease() {
       }
     }
   }
+
+  return false;
 }
 
 // Retrieve the last known release tag from a file
