@@ -58,15 +58,26 @@ interface cdMetrics {
 interface DataStore {
   cdMetrics: cdMetrics;
   latestStemlightReleaseTag: string;
-  backedUp: boolean;
   users: User[];
   userReplyData: UserReplyData[];
 }
 
 let dataStore: DataStore;
 
-// Set interval to update hourly limit every hour
-setInterval(updateHourlyLimit, 1000 * 60 * 60);
+function getDefaultDataStore(): DataStore {
+  return {
+      cdMetrics: {
+          botMessageCount: 0,
+          botLimitReached: false,
+          currentHour: new Date().getHours(),
+          lastPaperMsgTimestamp: 0,
+          lastMessageIndex: undefined
+      },
+      latestStemlightReleaseTag: '',
+      users: [],
+      userReplyData: []
+  };
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// End Points /////////////////////////////////
@@ -75,7 +86,10 @@ client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
   await loadDatabase();
-  setInterval(saveDatabase, 1000 * 60 * 15); // Save every 15 minutes
+  // Save every 15 minutes
+  setInterval(async () => {await saveDatabase()}, 1000 * 60 * 15); 
+  // Backup the database every 12 hours
+  setInterval(async () => {await backupDatabase()}, 1000 * 60 * 60 * 12);
 });
 
 // Event handler for when the bot is closed using Ctrl + C
@@ -233,16 +247,8 @@ async function saveDatabase(): Promise<void> {
   try {
     fs.writeFileSync(databaseFilePath, JSON.stringify(dataStore, null, 2), 'utf8');
     console.log('Database saved successfully');
-  } catch (error) {
-    console.error('Error saving database:', error);
-  }
-
-  // Backup the database every 12 hours if it hasn't been backed up yet
-  const currentHour = new Date().getHours();
-  if (currentHour % 12 === 0 && !dataStore.backedUp) {
-    await backupDatabase();
-  } else if (currentHour % 12 !== 0) {
-    dataStore.backedUp = false;
+  } catch (error: any) {
+    console.error('Error saving database:', error.message.substring(0, 100));
   }
 }
 
@@ -251,13 +257,11 @@ async function backupDatabase(): Promise<boolean> {
   const backupFilePath = path.join(__dirname, 'database_backup.json');
   try {
     await saveDatabase();
-    fs.copyFileSync(path.join(__dirname, 'database.json'), backupFilePath);
+    fs.writeFileSync(backupFilePath, JSON.stringify(dataStore, null, 2), 'utf8');
     console.log('Database backed up successfully');
-    dataStore.backedUp = true;
     return true;
-  } catch (error) {
-    console.error('Error backing up database:', error);
-    dataStore.backedUp = false;
+  } catch (error: any) {
+    console.error('Error backing up database:', error.message.substring(0, 100));
     return false;
   }
 }
@@ -266,31 +270,15 @@ async function loadFromBackup(): Promise<DataStore | false> {
   const backupFilePath = path.join(__dirname, 'database_backup.json');
   try {
     const data = fs.readFileSync(backupFilePath, 'utf8');
-    console.log('Backup loaded successfully');
     dataStore = JSON.parse(data);
-    // Retstore datastore to backup
+    console.log('Backup loaded successfully');
+    // Retstore datastore to backup by updating the dataBase with the new dataStore
     await saveDatabase();
     return dataStore;
   } catch (error: any) {
     console.error('Error loading backup:', error.message.substring(0, 100));
     return false;
   }
-}
-
-function getDefaultDataStore(): DataStore {
-  return {
-      cdMetrics: {
-          botMessageCount: 0,
-          botLimitReached: false,
-          currentHour: new Date().getHours(),
-          lastPaperMsgTimestamp: 0,
-          lastMessageIndex: undefined
-      },
-      latestStemlightReleaseTag: '',
-      backedUp: false,
-      userReplyData: [],
-      users: []
-  };
 }
 
 function weightedRandomIndex(weights): number {
@@ -611,6 +599,7 @@ async function pruneMessages(message) {
     numMessages = 1;
   } else if (numMessages < 1 || numMessages > 50) {
     message.reply('Please specify a number between 1 and 50 and try again.');
+    return;
   } else {
     await sendMessage(
       message.channel,
