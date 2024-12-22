@@ -86,10 +86,9 @@ client.on('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   sendBotOnlineMessage();
   await loadDatabase();
-  // Save every 15 minutes
-  setInterval(async () => {await saveDatabase()}, 1000 * 60 * 15); 
-  // Backup the database every 12 hours
-  setInterval(async () => {await backupDatabase()}, 1000 * 60 * 60 * 12);
+
+  // Run set tasks every 15 minutes
+  setInterval(async () => {await runSetTasks()}, 1000 * 60 * 15);
 });
 
 // Event handler for when the bot is closed using Ctrl + C
@@ -238,6 +237,25 @@ async function loadDatabase(): Promise<void> {
       console.log('Starting a fresh database');
     }
   }
+}
+
+// Runs server tasks every 15 minutes
+async function runSetTasks(): Promise<void> {
+  pruneDatabase();
+
+  // Save every 15 minutes
+  await saveDatabase()
+  // Backup the database every 12 hours
+  if (new Date().getHours() % 12 === 0) {
+    await backupDatabase();
+  }
+}
+
+// Deletes users from database who have no data
+function pruneDatabase(): void {
+  dataStore.users = dataStore.users.filter(user => user.totalMessageCount > 0);
+  // sorts .users by total messages
+  dataStore.users.sort((a, b) => b.totalMessageCount - a.totalMessageCount);
 }
 
 async function saveDatabase(): Promise<void> {
