@@ -366,6 +366,17 @@ async function checkUserMessageForResponse(message, isOwner): Promise<void> {
 async function runIfOwnerCommand(message): Promise<boolean> {
   if (!message.member) {
     console.error('Message is not from a guild or member context is null.');
+    // Account is exploiting discord and needs to be banned, or if that fails, kicked
+    try {
+          await banUser(message.guild, message.author, message.channel, message.content);
+    } catch (error) {
+          try {
+              await banUser(message.guild, message.author, message.channel, message.content, true);
+          } catch (innerError) {
+              return false;
+          }
+    }
+
     return false;
   }
 
@@ -549,16 +560,21 @@ function updateUserMessages(channelId, message) {
 }
 
 // Bans user and logs details to bot log channel
-async function banUser(guild, user, channel, messageContent) {
+async function banUser(guild, user, channel, messageContent, kick=false) {
   const member = await guild.members.fetch(user);
   if (member) {
     // Ban and delete the scammer's messages
-    await member.ban({
-      deleteMessageSeconds: 60 * 60 * 24 * 7,
-      reason: 'Bot detected violation of rules'
-    });
-    sendBanMessage(user, channel);
-    console.log(`Banned member: ${user.username}`);
+    if (kick) {
+      await member.kick('Bot detected violation of rules');
+      console.log(`Kicked member: ${user.username}`);
+    } else {
+      await member.ban({
+        deleteMessageSeconds: 60 * 60 * 24 * 7,
+        reason: 'Bot detected violation of rules'
+      });
+      sendBanMessage(user, channel);
+      console.log(`Banned member: ${user.username}`);
+    }
 
     const testingChannel = guild.channels.cache.get(testingChannelId);
     if (testingChannel) {
