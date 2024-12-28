@@ -364,6 +364,11 @@ async function checkUserMessageForResponse(message, isOwner): Promise<void> {
 }
 
 async function runIfOwnerCommand(message): Promise<boolean> {
+  if (!message.member) {
+    console.error('Message is not from a guild or member context is null.');
+    return false;
+  }
+
   const hasOwnerRole = message.member.roles.cache.some(
     role => role.name === 'slightly different shade of cyan'
   );
