@@ -555,7 +555,7 @@ function updateUserMessages(channelId, message) {
       user.channels[channelId].push(Date.now());
       user.recentSusMessageCount++;
     // Debug dataStore
-    console.log(util.inspect(dataStore, { depth: null, colors: true }));
+    // console.log(util.inspect(dataStore, { depth: null, colors: true }));
   }
 }
 

@@ -5,3 +5,4 @@ src/PAT.txt
 src/hfh-bot.js
 src/database.json
 src/database_backup.json
+src/hidden.json
