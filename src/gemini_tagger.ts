@@ -24,7 +24,7 @@ async function main() {
     console.log(tags);
 }
 
-main();
+// main();
 
 ////////////////////////////////
 
@@ -56,3 +56,81 @@ function getKeyByName(name: string): string | null {
         return null;
     }
 }
+
+// Testing with structured output
+const model2 = genAI.getGenerativeModel({
+  model: "gemini-2.0-flash-exp",
+});
+
+const generationConfig = {
+  temperature: 0.1,
+  topP: 0.95,
+  topK: 40,
+  maxOutputTokens: 8192,
+  responseMimeType: "application/json",
+  responseSchema: {
+    type: "object",
+    properties: {
+      choosing_or_issue: {
+        type: "boolean"
+      },
+      choosing: {
+        type: "object",
+        properties: {
+          general_farm_tag: {
+            type: "string"
+          },
+          feature_tags: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: [
+          "general_farm_tag",
+          "feature_tags"
+        ]
+      },
+      issue: {
+        type: "object",
+        properties: {
+          specific_farm_tag: {
+            type: "string"
+          },
+          issue_tags: {
+            type: "array",
+            items: {
+              type: "string"
+            }
+          }
+        },
+        required: [
+          "specific_farm_tag",
+          "issue_tags"
+        ]
+      }
+    },
+    required: [
+      "choosing_or_issue"
+    ]
+  },
+};
+
+async function run() {
+  const inputSentence = "hows the weather in sydney";
+  const parts = [
+    {text: "input: for the 12 type tree farm is it possible to add more filtered hoppers?"},
+    {text: "output: {  \"choosing_or_issue\": false,  \"issue\": {    \"specific_farm_tag\": \"vuntf_v2\",    \"issue_tags\": [      \"add_filters\"    ]  }}"},
+    {text: `input: ${inputSentence}`},
+    {text: "output: "},
+  ];
+
+  const result = await model2.generateContent({
+    contents: [{ role: "user", parts }],
+    generationConfig,
+  });
+  console.log(result.response.text());
+}
+
+run();

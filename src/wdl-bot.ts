@@ -532,7 +532,7 @@ function updateUserMessages(channelId, message) {
   // Update user's message timestamps
   const keywords = [
     '@everyone', '@here', 'steam', 'discord', 'discord nitro', 'free nitro', 'free gift',
-    'free giveaway', 'free money', 'hack', 'bitcoin', 'crypto'
+    'free giveaway', 'free money', 'hack', 'bitcoin', 'crypto', 'gift', '$'
   ];
   const isSuspicious = keywords.some(keyword => message.content.includes(keyword));
   
