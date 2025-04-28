@@ -66,7 +66,7 @@ exports.triggerPhrases = [
 
 // what farm design phrases
 exports.otherPhrases = [
-  'the tree farm',
+  // 'the tree farm',
   'the wood farm',
   'the machine',
   'the nether tree farm',

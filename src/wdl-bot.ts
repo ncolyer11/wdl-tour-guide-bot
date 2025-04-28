@@ -204,7 +204,9 @@ client.once('ready', async () => {
   } else {
     console.log('No new releases found.');
   }
-  setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 15 minutes (in milliseconds)
+  /// # XXX GITHUB STOP CHANGING SHITOUT API AND LIMIT PAT CONFIGS EVERY 2 MONTHS CHALLENGE
+  // WILL DISAble stemlight update checking till im bothered enough to fix
+  // setInterval(checkForNewRelease, 15 * 60 * 1000); // Check every 15 minutes (in milliseconds)
 });
 
 /////////////////////////////////////////////////////////////////////////////
@@ -317,7 +319,7 @@ async function checkUserMessageForResponse(message, isOwner): Promise<void> {
   // Only check for trigger phrases in the specified channels
   let channelRestrict: boolean = true;
   let botReplied: boolean = false;
-  if (isOwner || await canSendMessage(message, channelRestrict)) {
+  if (!isOwner && await canSendMessage(message, channelRestrict)) {
     if (triggerPhrases.some(phrase => message.content
         .toLowerCase()
         .replace(/['",.\-`()]/g, '')
