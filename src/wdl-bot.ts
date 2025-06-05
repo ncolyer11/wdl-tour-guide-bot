@@ -509,7 +509,13 @@ async function checkBan(message): Promise<boolean> {
 function updateUserMessages(channelId, message) {
   const { author } = message;
   const userId = author.id;
-  let roles = message.member.roles.cache
+  let roles;
+  try {
+    roles = message.member.roles.cache;
+  } catch (error) {
+    console.error('Error reading roles:', error);
+    return;
+  }
   // Convert list of role objects to list of role names
   roles = roles.map(role => role.name);
   let user: User | undefined = dataStore.users.find(user => user.userId === userId);
