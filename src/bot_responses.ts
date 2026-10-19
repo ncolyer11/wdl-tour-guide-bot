@@ -4,25 +4,25 @@ interface RoleBias {
 }
 
 // trigger phrases
-exports.wdlHelpKWs = [
+export const wdlHelpKWs = [
     'can', 'find', 'where', 'farm', 'download', 'schematic', 'litematic',
     'world', 'wdl', 'are', 'rapid', '12', '11', 'twelve', 'have', 'fungus', 'anybody', 'got',
     'wheres', 'link', 'tree', 'design'
 ];
 
-exports.wdlHelpResponse = `Hey $author$, please see $archiveChannel$ for all world downloads and schematics.`
+export const wdlHelpResponse = `Hey $author$, please see $archiveChannel$ for all world downloads and schematics.`
 
 // Issue is the bot goes word by word, but this trigger kinda relies on phrases sooo
-exports.specifyFarmKWs = [
+export const specifyFarmKWs = [
     'the tree farm',
     'the wood farm',
     'the machine',
     'the nether tree farm',
     'problem tree farm'
 ];
-exports.specifyFarmResponse = `Hey $author$, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
+export const specifyFarmResponse = `Hey $author$, this server has many different tree farm designs by many different people.\n\nPlease include the name of the farm you need help with.`
 
-exports.generalExclusionPhrases = [
+export const generalExclusionPhrases = [
     'but',
     'than',
     '11',

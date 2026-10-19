@@ -1,7 +1,5 @@
-// strings.js
-
 // safe roles
-exports.safeRoles = [
+export const safeRoles = [
   'fungus enthusiast',
   'trusted user',
   'nft',
@@ -11,7 +9,7 @@ exports.safeRoles = [
 ];
 
 // trigger phrases
-exports.triggerPhrases = [
+export const triggerPhrases = [
   'can i find',
   'i can find',
   'i cant find',
@@ -65,7 +63,7 @@ exports.triggerPhrases = [
 ];
 
 // what farm design phrases
-exports.otherPhrases = [
+export const otherPhrases = [
   // 'the tree farm',
   'the wood farm',
   'the machine',
@@ -74,7 +72,7 @@ exports.otherPhrases = [
 ];
 
 // ignore message phrases
-exports.excPhrases = [
+export const excPhrases = [
   'but',
   'than',
   '11',
@@ -90,7 +88,7 @@ exports.excPhrases = [
 ];
 
 // Define an array of possible welcome messages with different rarities
-exports.welcomeMessages = [
+export const welcomeMessages = [
   "Welcome to Huge Fungi Huggers, {member}! We're so glad you're here {Froge}", // 1
   "Hey {member}, welcome to the server! Enjoy all the free wood here.", // 2
   "Greetings, {member} {Froge} Enjoy your time collecting shroomlights here.", // 3
@@ -120,7 +118,7 @@ exports.welcomeMessages = [
   "Welcome to the server, {member} {Froge} Enjoy yourself!" // 27
 ];
 
-exports.channelIds = [
+export const channelIds = [
   '1092283954805084200',
   '930033193170661436',
   '930027805398429739',
@@ -128,7 +126,7 @@ exports.channelIds = [
   '1094609234978668765'
 ];
 
-exports.channelNames = [
+export const channelNames = [
   'general',
   'question us',
   'welcome',

@@ -1,86 +1,58 @@
-# World Download Tour Guide Privacy Policy
+# Privacy Policy: Huge Fungi Huggers Bot (wdl-tour-guide-bot)
 
-**Last updated:** 19 October 2026
+*Last updated: 19th Oct 2026.*
 
-## 1. Overview
+## Who runs this bot
+Operated by ncolyer  for the Huge Fungi Huggers Discord server.
+Contact for privacy questions or requests: @ncolyer on Discord.
 
-World Download Tour Guide is a Discord bot designed to assist members of the Huge Fungi Huggers Discord server by providing information, responding to common questions, welcoming new members and assisting with server moderation.
+## What the bot stores
+Stored persistently, **encrypted at rest (AES-256-GCM)**:
 
-This Privacy Policy explains what information the Bot accesses, how that information is used and stored, and how users can request its deletion.
+| Data | Purpose |
+|---|---|
+| Discord user ID | Keep a per-user message count and remember opt-out choices |
+| Time the bot first saw you | Housekeeping |
+| Number of messages you have sent | Server activity statistics |
 
-## 2. Information Collected
+Also stored: a list of user IDs that have opted out.
 
-The Bot may access and process the following information provided through Discord:
+## What the bot does *not* store
+Message content, usernames, roles, avatars, DMs, or anything from servers other than the one it is installed in.
 
-- **User information:** Discord user IDs, usernames and server roles.
-- **Message information:** Message content, channel information and message activity.
-- **Activity statistics:** Message counts, bot interaction counts and timestamps associated with potential spam.
-- **Membership information:** Server joining and leaving events.
+## Short-lived data (memory only, never saved, lost on restart)
+- Timestamps of scam-looking messages (about 20 seconds) for automatic scam detection.
+- Per-user reply counters (1 hour) for rate limiting.
 
-The Bot does not request passwords, payment information or other sensitive account credentials.
+These run even for users who opted out, so opting out cannot be used to evade scam detection.
 
-## 3. How Information Is Used
+## Why the bot uses privileged intents
+- **Message Content:** to recognise common help questions and to detect scam links.
+  Message text is processed in memory and is not stored.
+- **Server Members:** to send welcome messages and to delete stored data when a member leaves.
 
-Information is processed solely for the Bot's functionality, including:
+## Moderation logs
+When a member deletes a message, or the bot bans/kicks an account for scam spam, a copy of the message is posted to a private moderator channel in the server. This copy is kept in Discord, not in the bot's database. Users who opted out are excluded from the deleted-message log.
 
-- Responding to frequently asked questions and directing members to relevant server resources.
-- Welcoming new members and providing useful links.
-- Detecting potential spam and enforcing server moderation rules.
-- Recording deleted messages and moderation actions for server oversight.
-- Tracking message activity and applying rate limits to prevent excessive automated responses.
+## Retention
+A user's record is deleted when they leave the server, opt out, or are banned. Encrypted backups are overwritten on a rolling basis.
 
-The Bot does not use collected information for advertising, marketing or commercial profiling.
+## Your choices
+- `/privacy info`: how data is handled
+- `/privacy mydata`: shows exactly what is stored about you
+- `/privacy optout`: stops storage and deletes your record immediately
+- `/privacy optin`: allows storage again
 
-## 4. Data Storage and Retention
+You can also contact @ncolyer on Discord to request access or deletion.
 
-The Bot stores limited user information and activity statistics in local database files, with backups maintained for operational purposes.
+## Security
+Data is encrypted with AES-256-GCM using a key held separately from the data files. Files are written atomically and are readable only by the bot's system account.
 
-Ordinary message contents are processed temporarily and are not routinely saved in the Bot's local database.
+## Sharing
+Data is not sold or shared with third parties. The bot communicates with Discord's API and, to check for new releases, GitHub's public API (no user data is sent).
 
-However, deleted messages and messages associated with moderation actions may be copied into a designated Discord logging channel, where they remain until deleted.
+## Children
+Users must meet Discord's minimum age requirement. The bot does not knowingly collect data beyond what Discord provides.
 
-User records are removed from the active database when a member leaves the server. Records with no message activity are also periodically removed. Older copies may remain temporarily in database backups until those backups are updated.
-
-Bot interaction counters are normally reset hourly. Other records may be retained while needed for the Bot's operation. Moderation logs do not have a fixed automatic deletion period.
-
-## 5. Data Sharing
-
-The Bot operates through Discord and uses Discord's services to receive events, send messages and maintain moderation logs.
-
-Information recorded in Discord logging channels may be accessible to server members with the appropriate channel permissions.
-
-The Bot does not sell user information or intentionally provide it to advertisers or data brokers. Hosting providers may process information where necessary to operate the Bot.
-
-Discord's own processing of information is governed by its [Privacy Policy](https://discord.com/privacy).
-
-## 6. Data Security
-
-Access to locally stored Bot information is intended to be limited to the Bot operator and authorised personnel. Discord moderation logs are subject to the server's channel permissions.
-
-Reasonable measures are taken to protect stored information from unauthorised access. However, no system can guarantee absolute security.
-
-## 7. Data Deletion and Privacy Requests
-
-Users may request access to or deletion of personal information held by the Bot by contacting the Bot operator.
-
-Deletion requests will be reviewed and applicable information removed from the Bot's stored records, backups and moderation logs, unless retention is required by law.
-
-Requests can be directed to:
-
-**Contact:** @ncolyer on Discord
-
-## 8. Changes to This Policy
-
-This Privacy Policy may be updated if the Bot's functionality or data-handling practices change.
-
-The latest version will be made publicly available through the Bot's Privacy Policy URL.
-
-## 9. Contact
-
-For questions or concerns regarding this Privacy Policy or the Bot's handling of information, please contact:
-
-**Bot:** World Download Tour Guide
-
-**Server:** Huge Fungi Huggers
-
-**Operator:** @ncolyer on Discord
+## Changes
+Changes will be reflected here with an updated date.
