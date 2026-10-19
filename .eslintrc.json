@@ -1,8 +1,11 @@
 {
 "ignorePatterns": [],
 "extends": [
-    "eslint:recommended"
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
 ],
+"parser": "@typescript-eslint/parser",
+"plugins": ["@typescript-eslint"],
 "parserOptions": {
     "ecmaVersion": 2022,
     "ecmaFeatures": {
@@ -121,7 +124,20 @@
     "no-unused-expressions": ["error", { "allowShortCircuit": true, "allowTernary": true, "allowTaggedTemplates": true }],
     "no-useless-call": "error",
     "no-useless-computed-key": "error",
-    "no-useless-constructor": "error",
-    "no-useless-escape": "error"
-  }
+    "no-useless-constructor": "off",
+    "no-useless-escape": "error",
+    "@typescript-eslint/no-useless-constructor": "error"
+  },
+    "overrides": [
+        {
+            "files": ["**/*.ts"],
+            "rules": {
+                "no-undef": "off",
+                "@typescript-eslint/no-unused-vars": [
+                    "warn",
+                    { "argsIgnorePattern": "^_" }
+                ]
+            }
+        }
+    ]
 }

@@ -1,9 +1,9 @@
 # Privacy Policy: Huge Fungi Huggers Bot (wdl-tour-guide-bot)
 
-*Last updated: 19th Oct 2026.*
+*Last updated: 19th Oct 2026 (AEST).*
 
 ## Who runs this bot
-Operated by ncolyer  for the Huge Fungi Huggers Discord server.
+Operated by ncolyer for the Huge Fungi Huggers Discord server.
 Contact for privacy questions or requests: @ncolyer on Discord.
 
 ## What the bot stores
@@ -21,7 +21,7 @@ Also stored: a list of user IDs that have opted out.
 Message content, usernames, roles, avatars, DMs, or anything from servers other than the one it is installed in.
 
 ## Short-lived data (memory only, never saved, lost on restart)
-- Timestamps of scam-looking messages (about 20 seconds) for automatic scam detection.
+- Timestamps and scores of scam-looking messages (about 30 seconds) for automatic scam detection.
 - Per-user reply counters (1 hour) for rate limiting.
 
 These run even for users who opted out, so opting out cannot be used to evade scam detection.
@@ -32,10 +32,10 @@ These run even for users who opted out, so opting out cannot be used to evade sc
 - **Server Members:** to send welcome messages and to delete stored data when a member leaves.
 
 ## Moderation logs
-When a member deletes a message, or the bot bans/kicks an account for scam spam, a copy of the message is posted to a private moderator channel in the server. This copy is kept in Discord, not in the bot's database. Users who opted out are excluded from the deleted-message log.
+When a member deletes a message, or the bot flags a likely scam (and, for recent joiners, times out, kicks or bans the account), a copy of the message is posted to a private moderator channel in the server. This copy is kept in Discord, not in the bot's database. Users who opted out are excluded from the deleted-message log.
 
 ## Retention
-A user's record is deleted when they leave the server, opt out, or are banned. Encrypted backups are overwritten on a rolling basis.
+A user's record is deleted when they leave the server, opt out, or are kicked or banned. Encrypted backups are overwritten on a rolling basis.
 
 ## Your choices
 - `/privacy info`: how data is handled

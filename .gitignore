@@ -9,3 +9,5 @@ src/hidden.json
 data/
 PAT.txt
 .env
+hidden.json
+old_src/
