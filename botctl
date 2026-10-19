@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -eu
+
+SERVICE="wdl-bot"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+case "${1:-help}" in
+  start|resume)
+    sudo systemctl start "$SERVICE"
+    ;;
+  stop|pause)
+    sudo systemctl stop "$SERVICE" # use before maintenance
+    ;;
+  restart)
+    sudo systemctl restart "$SERVICE" # use after config updates
+    ;;
+  status)
+    sudo systemctl status "$SERVICE" --no-pager -l
+    ;;
+  logs)
+    sudo journalctl -u "$SERVICE" -n 80 --no-pager
+    ;;
+  live)
+    sudo journalctl -u "$SERVICE" -f # use to watch logs
+    ;;
+  update) # to pull code/install dependencies/restart
+    git pull --ff-only
+    source "$HOME/.nvm/nvm.sh"
+    nvm use --silent default >/dev/null
+    npm ci
+    sudo systemctl restart "$SERVICE"
+    sleep 2
+    sudo systemctl status "$SERVICE" --no-pager -l
+    ;;
+  *)
+    echo "Usage: ./botctl {start|stop|restart|status|logs|live|update}"
+    exit 1
+    ;;
+esac
