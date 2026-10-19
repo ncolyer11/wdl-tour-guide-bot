@@ -40,6 +40,6 @@ test('wrong key is detected', () => {
 
 test('key file is private', () => {
   const dir = tmp();
-  new SecureStore(dir);
+  assert.doesNotThrow(() => new SecureStore(dir));
   assert.equal(fs.statSync(path.join(dir, 'db.key')).mode & 0o777, 0o600);
 });
