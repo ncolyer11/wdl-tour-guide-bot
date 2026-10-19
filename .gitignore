@@ -6,3 +6,6 @@ src/hfh-bot.js
 src/database.json
 src/database_backup.json
 src/hidden.json
+data/
+PAT.txt
+.env

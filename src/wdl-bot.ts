@@ -9,6 +9,7 @@ import {
   Message,
   MessageCreateOptions,
   MessageFlags,
+  MessageType,
   PartialGuildMember,
   SlashCommandBuilder,
   User as DiscordUser,
@@ -33,6 +34,19 @@ const SAVE_INTERVAL_MS = 15 * 60_000;
 const BACKUP_INTERVAL_MS = 12 * 60 * 60_000;
 const RELEASE_POLL_MS = 15 * 60_000;
 const ENABLE_RELEASE_POLLING = true;
+
+// ---------------------------------------------------------------------------
+// PRIVILEGED INTENT SWITCHES. Leave these false until Discord approves each intent
+// (and it is toggled on in the Developer Portal), then flip it to true and restart.
+//
+//  USE_MESSAGE_CONTENT_INTENT = false -> the bot can't read message text, so these are OFF:
+//      trigger-phrase replies, "paper" reply, scam auto-ban, deleted-message log, !owner commands.
+//  USE_GUILD_MEMBERS_INTENT   = false -> no join/leave events, so:
+//      welcomes fall back to Discord's own join message, and NO per-user data is stored
+//      (without leave events we couldn't delete it when people leave).
+// ---------------------------------------------------------------------------
+const USE_MESSAGE_CONTENT_INTENT = false;
+const USE_GUILD_MEMBERS_INTENT = false;
 
 const archiveChannel = '1019870085617291305';
 const testingChannelId = '1094609234978668765';
@@ -130,13 +144,12 @@ function readSecret(envVar: string, fileName: string): string | undefined {
 /////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////// Client ///////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
+const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
+if (USE_GUILD_MEMBERS_INTENT) intents.push(GatewayIntentBits.GuildMembers); // privileged: welcomes + leave cleanup
+if (USE_MESSAGE_CONTENT_INTENT) intents.push(GatewayIntentBits.MessageContent); // privileged: triggers + scam detection
+
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers, // privileged: welcome messages + member-leave cleanup
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // privileged: trigger phrases + scam detection
-  ],
+  intents,
   allowedMentions: { parse: ['users'] }, // never @everyone/@here or roles unless a call opts in
 });
 
@@ -145,6 +158,11 @@ const client = new Client({
 /////////////////////////////////////////////////////////////////////////////
 client.once(Events.ClientReady, async readyClient => {
   console.log(`Logged in as ${readyClient.user.tag}`);
+  console.log(
+    `Mode: message content ${USE_MESSAGE_CONTENT_INTENT ? 'ON' : 'OFF'}, ` +
+    `server members ${USE_GUILD_MEMBERS_INTENT ? 'ON' : 'OFF'}` +
+    (USE_MESSAGE_CONTENT_INTENT && USE_GUILD_MEMBERS_INTENT ? '' : ' (lightweight mode, some features disabled)')
+  );
   await registerCommands();
   await sendBotOnlineMessage();
 
@@ -156,7 +174,7 @@ client.once(Events.ClientReady, async readyClient => {
   if (ENABLE_RELEASE_POLLING) setInterval(() => void runReleaseCheck(), RELEASE_POLL_MS);
 });
 
-client.on(Events.GuildMemberAdd, async member => {
+async function welcomeMember(member: GuildMember): Promise<void> {
   try {
     if (member.user.bot) return;
 
@@ -177,9 +195,11 @@ client.on(Events.GuildMemberAdd, async member => {
 
     await dmUser(member);
   } catch (error) {
-    console.error('guildMemberAdd failed:', errMsg(error));
+    console.error('welcomeMember failed:', errMsg(error));
   }
-});
+}
+
+client.on(Events.GuildMemberAdd, member => void welcomeMember(member)); // needs the Server Members intent
 
 client.on(Events.GuildMemberRemove, async (member: GuildMember | PartialGuildMember) => {
   try {
@@ -195,6 +215,7 @@ client.on(Events.GuildMemberRemove, async (member: GuildMember | PartialGuildMem
 
 client.on(Events.MessageDelete, async message => {
   try {
+    if (!USE_MESSAGE_CONTENT_INTENT) return;
     const author = message.author;
     if (!author || author.bot || !message.guild || message.content == null) return;
     if (isOptedOut(author.id)) return; // respect opt-outs: don't copy their deleted messages anywhere
@@ -217,8 +238,15 @@ client.on(Events.MessageCreate, async message => {
   try {
     if (!message.inGuild()) return; // ignore DMs
 
+    // Lightweight mode: no member-join event, so welcome off Discord's own "X joined" system message
+    if (!USE_GUILD_MEMBERS_INTENT && message.type === MessageType.UserJoin) {
+      const member = message.member ?? await message.guild.members.fetch(message.author.id).catch(() => null);
+      if (member) await welcomeMember(member);
+      return;
+    }
+
     const owner = isOwner(message);
-    if (owner) await handleOwnerCommand(message);
+    if (owner && USE_MESSAGE_CONTENT_INTENT) await handleOwnerCommand(message);
 
     // Keep #chunk-manipulation clean (owner-only channel)
     if (message.channel.id === chunkManipulationChannelId && !owner) {
@@ -228,7 +256,10 @@ client.on(Events.MessageCreate, async message => {
 
     if (message.author.bot || message.webhookId || message.system) return;
 
-    recordMessage(message.author.id); // no-op for opted-out users
+    // Only store per-user data when we can also delete it on leave (needs the Server Members intent)
+    if (USE_GUILD_MEMBERS_INTENT) recordMessage(message.author.id); // no-op for opted-out users
+
+    if (!USE_MESSAGE_CONTENT_INTENT) return; // everything below needs to read message text
 
     if (await checkBan(message)) return;
     await checkUserMessageForResponse(message, owner);
